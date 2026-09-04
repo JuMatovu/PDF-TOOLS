@@ -1,6 +1,8 @@
 import { IProcessor } from './types';
 import { imageToPdfProcessor } from './imageToPdfProcessor';
 import { mergePdfProcessor } from './mergePdfProcessor';
+import { splitPdfProcessor } from './splitPdfProcessor';
+import { rotatePdfProcessor } from './rotatePdfProcessor';
 
 class ProcessorRegistry {
   private processors: Map<string, IProcessor> = new Map();
@@ -16,6 +18,12 @@ class ProcessorRegistry {
 
     // Approved tool 2: Merge PDF
     this.register('merge-pdf', mergePdfProcessor);
+
+    // Approved tool 3: Split PDF
+    this.register('split-pdf', splitPdfProcessor);
+
+    // Approved tool 4: Rotate PDF
+    this.register('rotate-pdf', rotatePdfProcessor);
   }
 
   public register(toolId: string, processor: IProcessor): void {

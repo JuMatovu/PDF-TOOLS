@@ -79,8 +79,8 @@ export class ProcessController {
         await fs.promises.rename(f.path, targetPath);
 
         // Magic byte validation based on input type
-        const isPdfTool = toolId === 'merge-pdf';
-        if (isPdfTool) {
+        const isPdfInputTool = ['merge-pdf', 'split-pdf', 'rotate-pdf'].includes(toolId);
+        if (isPdfInputTool) {
           const isValidPdf = await validatePdfMagicBytes(targetPath);
           if (!isValidPdf) {
             await jobService.deleteJob(job.id);

@@ -30,6 +30,14 @@ const ALLOWED_TYPES_BY_TOOL: Record<string, { extensions: string[]; mimes: strin
     extensions: ['.pdf'],
     mimes: ['application/pdf', 'application/x-pdf'],
   },
+  'split-pdf': {
+    extensions: ['.pdf'],
+    mimes: ['application/pdf', 'application/x-pdf'],
+  },
+  'rotate-pdf': {
+    extensions: ['.pdf'],
+    mimes: ['application/pdf', 'application/x-pdf'],
+  },
 };
 
 const storage = multer.diskStorage({

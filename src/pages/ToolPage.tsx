@@ -16,8 +16,13 @@ import {
   ArrowRight,
   Sparkles,
   AlertTriangle,
+  FileText,
+  RotateCw,
+  Scissors,
+  RefreshCw,
 } from 'lucide-react';
 import { TOOLS } from '../data/tools';
+import { PdfPageVisualizer, formatPageNumbersToRange } from '../components/pdf/PdfPageVisualizer';
 
 interface ToolPageProps {
   tool: PDFTool;
@@ -35,7 +40,7 @@ interface CompletedResult {
 }
 
 // Approved backend tools
-const ACTIVE_BACKEND_TOOLS = ['jpg-to-pdf', 'merge-pdf'];
+const ACTIVE_BACKEND_TOOLS = ['jpg-to-pdf', 'merge-pdf', 'split-pdf', 'rotate-pdf'];
 
 /**
  * Safe JSON response parser that prevents syntax errors on non-JSON/HTML responses
@@ -76,6 +81,8 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
 
   const isJpgToPdf = tool.id === 'jpg-to-pdf' || tool.slug === 'jpg-to-pdf';
   const isMergePdf = tool.id === 'merge-pdf' || tool.slug === 'merge-pdf';
+  const isSplitPdf = tool.id === 'split-pdf' || tool.slug === 'split-pdf';
+  const isRotatePdf = tool.id === 'rotate-pdf' || tool.slug === 'rotate-pdf';
   const isBackendReady = ACTIVE_BACKEND_TOOLS.includes(tool.slug || tool.id);
 
   const [optionsState, setOptionsState] = useState<Record<string, any>>(() => {
@@ -85,6 +92,11 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
     });
     return initial;
   });
+
+  // Interactive page manipulation states for Split and Rotate
+  const [pageRotations, setPageRotations] = useState<Record<number, number>>({});
+  const [selectedPagesForSplit, setSelectedPagesForSplit] = useState<number[]>([]);
+  const [pageRangeInput, setPageRangeInput] = useState<string>('1');
 
   // Reset state when switching tools
   useEffect(() => {
@@ -96,12 +108,19 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
     setActiveJobId(null);
     setResult(null);
     setIsDeleted(false);
+    setPageRotations({});
+    setSelectedPagesForSplit([]);
+    setPageRangeInput('1');
 
     const initial: Record<string, any> = {};
     tool.options?.forEach((opt) => {
       initial[opt.id] = opt.defaultValue;
     });
-    return initial;
+    setOptionsState(initial);
+
+    return () => {
+      stopPolling();
+    };
   }, [tool.id]);
 
   const stopPolling = () => {
@@ -139,10 +158,55 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
 
   const handleRemoveFile = (id: string) => {
     setFiles((prev) => prev.filter((f) => f.id !== id));
+    setPageRotations({});
+    setSelectedPagesForSplit([]);
+    setPageRangeInput('1');
   };
 
   const handleClearFiles = () => {
     setFiles([]);
+    setPageRotations({});
+    setSelectedPagesForSplit([]);
+    setPageRangeInput('1');
+  };
+
+  const handleRotatePage = (pageNum: number, deltaAngle: number) => {
+    setPageRotations((prev) => {
+      const current = prev[pageNum] || 0;
+      const nextAngle = ((current + deltaAngle) % 360 + 360) % 360;
+      return {
+        ...prev,
+        [pageNum]: nextAngle,
+      };
+    });
+  };
+
+  const handleRotateAll = (deltaAngle: number) => {
+    setPageRotations((prev) => {
+      const updated: Record<number, number> = { ...prev };
+      for (const k of Object.keys(updated)) {
+        const p = Number(k);
+        updated[p] = ((updated[p] + deltaAngle) % 360 + 360) % 360;
+      }
+      return updated;
+    });
+  };
+
+  const handleResetRotations = () => {
+    setPageRotations({});
+  };
+
+  const handleTogglePageSelectionForSplit = (pageNum: number) => {
+    setSelectedPagesForSplit((prev) => {
+      const exists = prev.includes(pageNum);
+      const updated = exists ? prev.filter((p) => p !== pageNum) : [...prev, pageNum].sort((a, b) => a - b);
+      setPageRangeInput(formatPageNumbersToRange(updated));
+      return updated;
+    });
+  };
+
+  const handleSetSelectedPagesForSplit = (pages: number[]) => {
+    setSelectedPagesForSplit(pages);
   };
 
   const handleMoveUp = (index: number) => {
@@ -187,6 +251,14 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
       return;
     }
 
+    if (isSplitPdf) {
+      if (selectedPagesForSplit.length === 0 && !pageRangeInput.trim()) {
+        setErrorMessage('Please pick or insert at least one page you wish to split off.');
+        setStage('error');
+        return;
+      }
+    }
+
     setStage('processing');
     setProgress(5);
     setStatusMessage('Uploading and validating files...');
@@ -198,7 +270,25 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
       files.forEach((item) => {
         formData.append('files', item.file);
       });
-      formData.append('options', JSON.stringify(optionsState));
+
+      const finalOptions = {
+        ...optionsState,
+        ...(isRotatePdf
+          ? {
+              pageRotations,
+              angle: optionsState.angle || '90',
+              pages: optionsState.pages || 'all',
+            }
+          : {}),
+        ...(isSplitPdf
+          ? {
+              selectedPages: selectedPagesForSplit,
+              pageRange: pageRangeInput.trim() || selectedPagesForSplit.join(', '),
+              splitMode: 'range',
+            }
+          : {}),
+      };
+      formData.append('options', JSON.stringify(finalOptions));
 
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
@@ -333,47 +423,49 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
     handleFilesAdded([img1, img2]);
   };
 
-  // Sample PDF generator for merge-pdf testing
+  // Sample PDF generator for merge-pdf, split-pdf, rotate-pdf testing
   const handleLoadSamplePdfs = async () => {
     try {
-      const createPdf = async (title: string, subtitle: string, pageColor: [number, number, number]) => {
+      const createPdf = async (title: string, subtitle: string, pageColor: [number, number, number], pageCount = 1) => {
         const doc = await PDFDocument.create();
-        const page = doc.addPage([595, 842]); // A4
         const font = await doc.embedFont(StandardFonts.HelveticaBold);
         const subFont = await doc.embedFont(StandardFonts.Helvetica);
 
-        // Header band
-        page.drawRectangle({
-          x: 40,
-          y: 720,
-          width: 515,
-          height: 70,
-          color: rgb(pageColor[0], pageColor[1], pageColor[2]),
-        });
+        for (let p = 1; p <= pageCount; p++) {
+          const page = doc.addPage([595, 842]); // A4
+          // Header band
+          page.drawRectangle({
+            x: 40,
+            y: 720,
+            width: 515,
+            height: 70,
+            color: rgb(pageColor[0], pageColor[1], pageColor[2]),
+          });
 
-        page.drawText(title, {
-          x: 60,
-          y: 745,
-          size: 24,
-          font,
-          color: rgb(1, 1, 1),
-        });
+          page.drawText(`${title}${pageCount > 1 ? ` - Page ${p}` : ''}`, {
+            x: 60,
+            y: 745,
+            size: 22,
+            font,
+            color: rgb(1, 1, 1),
+          });
 
-        page.drawText(subtitle, {
-          x: 60,
-          y: 670,
-          size: 14,
-          font: subFont,
-          color: rgb(0.2, 0.2, 0.2),
-        });
+          page.drawText(subtitle, {
+            x: 60,
+            y: 670,
+            size: 14,
+            font: subFont,
+            color: rgb(0.2, 0.2, 0.2),
+          });
 
-        page.drawText('Generated for PDFTOOL Merge Verification testing.', {
-          x: 60,
-          y: 640,
-          size: 11,
-          font: subFont,
-          color: rgb(0.5, 0.5, 0.5),
-        });
+          page.drawText(`Page ${p} of ${pageCount} - PDFTOOL Real Processing Live Test`, {
+            x: 60,
+            y: 640,
+            size: 11,
+            font: subFont,
+            color: rgb(0.5, 0.5, 0.5),
+          });
+        }
 
         const bytes = await doc.save();
         return new File([bytes], `${title.toLowerCase().replace(/\s+/g, '_')}.pdf`, {
@@ -381,10 +473,14 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
         });
       };
 
-      const doc1 = await createPdf('Document Part 1', 'Section A - Introduction & Overview', [0.02, 0.58, 0.41]); // Emerald
-      const doc2 = await createPdf('Document Part 2', 'Section B - Detailed Analysis & Summary', [0.15, 0.39, 0.92]); // Blue
-
-      handleFilesAdded([doc1, doc2]);
+      if (isSplitPdf || isRotatePdf) {
+        const doc = await createPdf('Multi-Page Sample Document', 'Document with 3 pages for testing', [0.02, 0.58, 0.41], 3);
+        handleFilesAdded([doc]);
+      } else {
+        const doc1 = await createPdf('Document Part 1', 'Section A - Introduction & Overview', [0.02, 0.58, 0.41]); // Emerald
+        const doc2 = await createPdf('Document Part 2', 'Section B - Detailed Analysis & Summary', [0.15, 0.39, 0.92]); // Blue
+        handleFilesAdded([doc1, doc2]);
+      }
     } catch (err) {
       console.error('[ToolPage] Error generating sample PDFs:', err);
     }
@@ -395,10 +491,20 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
     (t) => t.category === tool.category && t.id !== tool.id
   ).slice(0, 3);
 
+  const rotatedCount = Object.values(pageRotations).filter((a) => a % 360 !== 0).length;
+
   const actionButtonText = isMergePdf
     ? 'Merge PDFs'
     : isJpgToPdf
     ? 'Convert to PDF'
+    : isSplitPdf
+    ? selectedPagesForSplit.length > 0
+      ? `Split ${selectedPagesForSplit.length} Selected Page${selectedPagesForSplit.length > 1 ? 's' : ''}`
+      : 'Split PDF'
+    : isRotatePdf
+    ? rotatedCount > 0
+      ? `Apply Rotation to ${rotatedCount} Page${rotatedCount > 1 ? 's' : ''}`
+      : 'Rotate All Pages (+90°)'
     : `Start ${tool.name}`;
 
   return (
@@ -477,8 +583,24 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
                 className="font-bold underline text-emerald-700 dark:text-emerald-400 cursor-pointer"
               >
                 Merge PDF
-              </button>{' '}
-              and{' '}
+              </button>
+              {', '}
+              <button
+                type="button"
+                onClick={() => navigate('/tools/split-pdf')}
+                className="font-bold underline text-emerald-700 dark:text-emerald-400 cursor-pointer"
+              >
+                Split PDF
+              </button>
+              {', '}
+              <button
+                type="button"
+                onClick={() => navigate('/tools/rotate-pdf')}
+                className="font-bold underline text-emerald-700 dark:text-emerald-400 cursor-pointer"
+              >
+                Rotate PDF
+              </button>
+              {', and '}
               <button
                 type="button"
                 onClick={() => navigate('/tools/jpg-to-pdf')}
@@ -497,20 +619,88 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           {/* Left Upload Area */}
           <div className="lg:col-span-8 space-y-6">
-            <FileUploader
-              files={files}
-              onFilesAdded={handleFilesAdded}
-              onFileRemoved={handleRemoveFile}
-              onClearFiles={handleClearFiles}
-              onMoveUp={handleMoveUp}
-              onMoveDown={handleMoveDown}
-              acceptedFormats={tool.acceptedFormats}
-              maxFileSizeMB={tool.maxFileSizeMB}
-              toolName={tool.name}
-            />
+            {/* If files are loaded for Split or Rotate mode, show interactive PDF visualizer */}
+            {files.length > 0 && (isSplitPdf || isRotatePdf) ? (
+              <div className="space-y-6">
+                {/* Active Document Header Card */}
+                <div className="p-4 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200/90 dark:border-neutral-800 flex items-center justify-between shadow-xs">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center flex-shrink-0">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-neutral-900 dark:text-white truncate max-w-xs sm:max-w-md">
+                        {files[0].name}
+                      </p>
+                      <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                        {formatFileSize(files[0].size)} • Ready for {isRotatePdf ? 'page rotation' : 'page extraction'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleClearFiles}
+                    className="text-xs font-semibold text-neutral-500 hover:text-red-600 dark:hover:text-red-400 px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:border-red-300 dark:hover:border-red-900/50 cursor-pointer transition-colors"
+                  >
+                    Change File
+                  </button>
+                </div>
 
-            {/* If files selected, show prompt to process */}
-            {files.length > 0 && (
+                {/* Interactive Page Visualizer */}
+                <PdfPageVisualizer
+                  file={files[0].file}
+                  mode={isRotatePdf ? 'rotate' : 'split'}
+                  pageRotations={pageRotations}
+                  onRotatePage={handleRotatePage}
+                  onRotateAll={handleRotateAll}
+                  onResetRotations={handleResetRotations}
+                  selectedPages={selectedPagesForSplit}
+                  onTogglePageSelection={handleTogglePageSelectionForSplit}
+                  onSetSelectedPages={handleSetSelectedPagesForSplit}
+                  pageRangeInput={pageRangeInput}
+                  onChangePageRangeInput={setPageRangeInput}
+                />
+
+                {/* Prompt & Action Bar */}
+                <div className="p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 text-xs text-emerald-900 dark:text-emerald-200">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                    <span>
+                      {isRotatePdf
+                        ? rotatedCount > 0
+                          ? `${rotatedCount} page${rotatedCount > 1 ? 's' : ''} customized for rotation.`
+                          : 'No custom page rotations selected yet (all pages will be rotated by default angle).'
+                        : selectedPagesForSplit.length > 0
+                        ? `${selectedPagesForSplit.length} page${selectedPagesForSplit.length > 1 ? 's' : ''} chosen for extraction.`
+                        : 'Please insert or pick pages above to split off.'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleStartProcessing}
+                    disabled={isSplitPdf && selectedPagesForSplit.length === 0}
+                    className="px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-neutral-950 text-xs font-bold shadow-xs cursor-pointer active:scale-95 transition-all whitespace-nowrap"
+                  >
+                    {actionButtonText} →
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <FileUploader
+                files={files}
+                onFilesAdded={handleFilesAdded}
+                onFileRemoved={handleRemoveFile}
+                onClearFiles={handleClearFiles}
+                onMoveUp={handleMoveUp}
+                onMoveDown={handleMoveDown}
+                acceptedFormats={tool.acceptedFormats}
+                maxFileSizeMB={tool.maxFileSizeMB}
+                toolName={tool.name}
+              />
+            )}
+
+            {/* If files selected for general tools, show prompt to process */}
+            {files.length > 0 && !isSplitPdf && !isRotatePdf && (
               <div className="p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/80 flex items-center justify-between">
                 <div className="flex items-center gap-2.5 text-xs text-emerald-900 dark:text-emerald-200">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
@@ -541,6 +731,14 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
                   >
                     Don't have PDF files handy? Click here to generate sample PDF documents
                   </button>
+                ) : isSplitPdf || isRotatePdf ? (
+                  <button
+                    type="button"
+                    onClick={handleLoadSamplePdfs}
+                    className="text-xs text-neutral-500 dark:text-neutral-400 hover:text-emerald-600 underline cursor-pointer"
+                  >
+                    Don't have a multi-page PDF handy? Click here to generate a 3-page test PDF document
+                  </button>
                 ) : isJpgToPdf ? (
                   <button
                     type="button"
@@ -568,8 +766,76 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
                 <span className="text-[11px] font-mono text-neutral-400">Settings</span>
               </div>
 
-              {/* Dynamic options based on tool configuration */}
-              {tool.options && tool.options.length > 0 ? (
+              {/* Options customized for Rotate, Split, or standard tools */}
+              {isRotatePdf ? (
+                <div className="space-y-4">
+                  <div className="p-3.5 rounded-2xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200/80 dark:border-neutral-700/80 space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-neutral-500 dark:text-neutral-400">Pages with Custom Rotation:</span>
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                        {rotatedCount} page{rotatedCount === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    {rotatedCount > 0 && (
+                      <p className="text-[11px] text-neutral-500 dark:text-neutral-400 pt-1 border-t border-neutral-200/60 dark:border-neutral-700/60">
+                        Individual page rotations take precedence during processing.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-neutral-800 dark:text-neutral-200">
+                      Quick Batch Rotation
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleRotateAll(90)}
+                        className="py-2 px-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 text-xs font-bold border border-emerald-200/80 dark:border-emerald-800/80 cursor-pointer active:scale-95 transition-all"
+                      >
+                        +90° (Clockwise)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRotateAll(180)}
+                        className="py-2 px-3 rounded-xl bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 text-xs font-medium cursor-pointer active:scale-95 transition-all"
+                      >
+                        180° (Upside Down)
+                      </button>
+                    </div>
+                    {rotatedCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleResetRotations}
+                        className="w-full py-2 text-xs text-neutral-500 hover:text-red-600 dark:hover:text-red-400 cursor-pointer text-center font-medium"
+                      >
+                        Reset All Rotations to 0°
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : isSplitPdf ? (
+                <div className="space-y-4">
+                  <div className="p-3.5 rounded-2xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200/80 dark:border-neutral-700/80 space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-neutral-500 dark:text-neutral-400">Pages to Extract:</span>
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                        {selectedPagesForSplit.length} selected
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-neutral-500 dark:text-neutral-400">Range Specification:</span>
+                      <span className="font-mono font-bold text-neutral-800 dark:text-neutral-200 truncate max-w-[130px]">
+                        {pageRangeInput || selectedPagesForSplit.join(', ') || 'None'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                    Click any page card in the preview grid or insert page numbers into the box to customize which pages are extracted.
+                  </p>
+                </div>
+              ) : tool.options && tool.options.length > 0 ? (
                 <div className="space-y-4">
                   {tool.options.map((option) => (
                     <div key={option.id} className="space-y-1.5">

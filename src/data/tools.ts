@@ -77,10 +77,11 @@ export const TOOLS: PDFTool[] = [
     category: 'ORGANIZE PDF',
     iconName: 'Split',
     route: '/tools/split-pdf',
-    processingType: 'client',
+    processingType: 'batch',
     acceptedFormats: ['.pdf'],
     outputFormat: '.pdf',
     maxFileSizeMB: 100,
+    popular: true,
     options: [
       {
         id: 'splitMode',
@@ -88,8 +89,20 @@ export const TOOLS: PDFTool[] = [
         type: 'select',
         defaultValue: 'range',
         options: [
-          { label: 'Custom Range (e.g. 1-5, 8)', value: 'range' },
-          { label: 'Split into single pages', value: 'all' },
+          { label: 'Extract Page Range', value: 'range' },
+          { label: 'Extract All Pages', value: 'all' },
+        ],
+      },
+      {
+        id: 'pageRange',
+        label: 'Page Range (e.g. 1-2, 3)',
+        type: 'select',
+        defaultValue: '1-2',
+        options: [
+          { label: 'Pages 1-2', value: '1-2' },
+          { label: 'Page 1 only', value: '1' },
+          { label: 'Page 2 only', value: '2' },
+          { label: 'All pages', value: 'all' },
         ],
       },
     ],
@@ -389,10 +402,35 @@ export const TOOLS: PDFTool[] = [
     category: 'EDIT PDF',
     iconName: 'RotateCw',
     route: '/tools/rotate-pdf',
-    processingType: 'client',
+    processingType: 'batch',
     acceptedFormats: ['.pdf'],
     outputFormat: '.pdf',
     maxFileSizeMB: 100,
+    popular: true,
+    options: [
+      {
+        id: 'angle',
+        label: 'Rotation Angle',
+        type: 'select',
+        defaultValue: '90',
+        options: [
+          { label: '90° Clockwise', value: '90' },
+          { label: '180° Flip', value: '180' },
+          { label: '90° Counter-Clockwise (270°)', value: '270' },
+        ],
+      },
+      {
+        id: 'pages',
+        label: 'Pages to Rotate',
+        type: 'select',
+        defaultValue: 'all',
+        options: [
+          { label: 'All pages', value: 'all' },
+          { label: 'Odd pages only', value: 'odd' },
+          { label: 'Even pages only', value: 'even' },
+        ],
+      },
+    ],
   },
   {
     id: 'add-page-numbers',

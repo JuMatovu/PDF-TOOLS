@@ -11,6 +11,7 @@ import { BlogPage } from './pages/BlogPage';
 import { HelpPage } from './pages/HelpPage';
 import { getToolBySlug } from './data/tools';
 import { ArrowLeft, Search } from 'lucide-react';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 const AppContent: React.FC = () => {
   const { currentPath, toolSlug, navigate } = useRouter();
@@ -80,7 +81,11 @@ const AppContent: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col bg-[#F9FAFB] dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans antialiased transition-colors selection:bg-green-100 selection:text-green-900 dark:selection:bg-green-900 dark:selection:text-green-100">
       <Header />
-      <main className="flex-1">{renderCurrentView()}</main>
+      <main className="flex-1">
+        <ErrorBoundary>
+          {renderCurrentView()}
+        </ErrorBoundary>
+      </main>
       <Footer />
     </div>
   );
