@@ -1,0 +1,7 @@
+{
+  "name": "PDFTOOL",
+  "description": "Modern, fast, and free all-in-one PDF and document tools without accounts or sign up.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
