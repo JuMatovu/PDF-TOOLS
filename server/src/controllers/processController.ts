@@ -3,7 +3,13 @@ import fs from 'fs';
 import path from 'path';
 import { jobService } from '../services/jobService';
 import { processorRegistry } from '../processors/processorRegistry';
-import { sanitizeFilename, validateImageMagicBytes, getJobDirs, removeFile } from '../utils/fileSystem';
+import {
+  sanitizeFilename,
+  validateImageMagicBytes,
+  validatePdfMagicBytes,
+  getJobDirs,
+  removeFile,
+} from '../utils/fileSystem';
 import { JobFile, JobOutput } from '../types/job';
 
 export class ProcessController {
@@ -72,15 +78,26 @@ export class ProcessController {
         // Move file
         await fs.promises.rename(f.path, targetPath);
 
-        // Magic byte validation for images
-        const isValidImage = await validateImageMagicBytes(targetPath);
-        if (!isValidImage) {
-          // Cleanup this job and fail
-          await jobService.deleteJob(job.id);
-          res.status(400).json({
-            error: `File "${safeOriginalName}" does not appear to be a valid image file. Processing rejected.`,
-          });
-          return;
+        // Magic byte validation based on input type
+        const isPdfTool = toolId === 'merge-pdf';
+        if (isPdfTool) {
+          const isValidPdf = await validatePdfMagicBytes(targetPath);
+          if (!isValidPdf) {
+            await jobService.deleteJob(job.id);
+            res.status(400).json({
+              error: `File "${safeOriginalName}" does not appear to be a valid PDF document. Processing rejected.`,
+            });
+            return;
+          }
+        } else {
+          const isValidImage = await validateImageMagicBytes(targetPath);
+          if (!isValidImage) {
+            await jobService.deleteJob(job.id);
+            res.status(400).json({
+              error: `File "${safeOriginalName}" does not appear to be a valid image file. Processing rejected.`,
+            });
+            return;
+          }
         }
 
         const stats = await fs.promises.stat(targetPath);

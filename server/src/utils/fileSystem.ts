@@ -122,3 +122,22 @@ export async function validateImageMagicBytes(filePath: string): Promise<boolean
     return false;
   }
 }
+
+/**
+ * Validates PDF header magic bytes to ensure file is genuinely a PDF.
+ * PDF specification dictates header starts with %PDF- (0x25 0x50 0x44 0x46 0x2d)
+ */
+export async function validatePdfMagicBytes(filePath: string): Promise<boolean> {
+  try {
+    const buffer = Buffer.alloc(8);
+    const fd = await fs.promises.open(filePath, 'r');
+    await fd.read(buffer, 0, 8, 0);
+    await fd.close();
+
+    const header = buffer.toString('ascii', 0, 5);
+    return header === '%PDF-';
+  } catch (err) {
+    console.error(`[FileSystem] Error inspecting PDF magic bytes for ${filePath}:`, err);
+    return false;
+  }
+}

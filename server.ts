@@ -24,6 +24,11 @@ async function startServer() {
   // Mount API routes FIRST
   app.use('/api', apiRouter);
 
+  // Explicit API 404 handler to prevent API routes from falling through to HTML SPA
+  app.all('/api/*', (req, res) => {
+    res.status(404).json({ error: `API endpoint not found: ${req.method} ${req.path}` });
+  });
+
   // Vite middleware for development or static serving for production
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

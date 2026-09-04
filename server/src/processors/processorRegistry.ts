@@ -1,5 +1,6 @@
 import { IProcessor } from './types';
 import { imageToPdfProcessor } from './imageToPdfProcessor';
+import { mergePdfProcessor } from './mergePdfProcessor';
 
 class ProcessorRegistry {
   private processors: Map<string, IProcessor> = new Map();
@@ -9,9 +10,12 @@ class ProcessorRegistry {
   }
 
   private registerDefaultProcessors(): void {
-    // Register the first approved tool: JPG/PNG -> PDF
+    // Approved tool 1: JPG/PNG -> PDF
     this.register('jpg-to-pdf', imageToPdfProcessor);
     this.register('image-to-pdf', imageToPdfProcessor);
+
+    // Approved tool 2: Merge PDF
+    this.register('merge-pdf', mergePdfProcessor);
   }
 
   public register(toolId: string, processor: IProcessor): void {

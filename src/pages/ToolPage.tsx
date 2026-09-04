@@ -7,6 +7,7 @@ import { ResultPanel } from '../components/tools/ResultPanel';
 import { ErrorMessage } from '../components/common/ErrorMessage';
 import { PrivacyNotice } from '../components/common/PrivacyNotice';
 import { ToolIcon, formatFileSize } from '../lib/icons';
+import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import {
   ChevronRight,
   ShieldCheck,
@@ -33,6 +34,31 @@ interface CompletedResult {
   previewUrl?: string;
 }
 
+// Approved backend tools
+const ACTIVE_BACKEND_TOOLS = ['jpg-to-pdf', 'merge-pdf'];
+
+/**
+ * Safe JSON response parser that prevents syntax errors on non-JSON/HTML responses
+ */
+async function parseJsonResponse(response: Response): Promise<any> {
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    try {
+      return await response.json();
+    } catch {
+      throw new Error('Failed to parse server response as JSON.');
+    }
+  }
+
+  // Not JSON, inspect text to prevent raw HTML crashing UI
+  const text = await response.text();
+  if (text.includes('<!doctype') || text.includes('<html')) {
+    throw new Error('The processing service is initializing. Please try your request again in a moment.');
+  }
+
+  throw new Error(text || `Server returned response status ${response.status}`);
+}
+
 export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
   const { navigate } = useRouter();
 
@@ -47,6 +73,10 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
 
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  const isJpgToPdf = tool.id === 'jpg-to-pdf' || tool.slug === 'jpg-to-pdf';
+  const isMergePdf = tool.id === 'merge-pdf' || tool.slug === 'merge-pdf';
+  const isBackendReady = ACTIVE_BACKEND_TOOLS.includes(tool.slug || tool.id);
 
   const [optionsState, setOptionsState] = useState<Record<string, any>>(() => {
     const initial: Record<string, any> = {};
@@ -71,14 +101,7 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
     tool.options?.forEach((opt) => {
       initial[opt.id] = opt.defaultValue;
     });
-    setOptionsState(initial);
-
-    return () => {
-      stopPolling();
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
+    return initial;
   }, [tool.id]);
 
   const stopPolling = () => {
@@ -89,7 +112,6 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
   };
 
   const handleFilesAdded = (rawFiles: File[]) => {
-    // Validate file sizes and extensions client-side first
     const validItems: UploadedFileItem[] = [];
     const maxBytes = (tool.maxFileSizeMB || 50) * 1024 * 1024;
 
@@ -123,19 +145,44 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
     setFiles([]);
   };
 
+  const handleMoveUp = (index: number) => {
+    if (index <= 0) return;
+    setFiles((prev) => {
+      const updated = [...prev];
+      const temp = updated[index];
+      updated[index] = updated[index - 1];
+      updated[index - 1] = temp;
+      return updated;
+    });
+  };
+
+  const handleMoveDown = (index: number) => {
+    setFiles((prev) => {
+      if (index >= prev.length - 1) return prev;
+      const updated = [...prev];
+      const temp = updated[index];
+      updated[index] = updated[index + 1];
+      updated[index + 1] = temp;
+      return updated;
+    });
+  };
+
   /**
    * Real File Processing Pipeline
    */
   const handleStartProcessing = async () => {
     if (files.length === 0) return;
 
-    // Check if this tool is implemented on the backend
-    const isJpgToPdf = tool.id === 'jpg-to-pdf' || tool.slug === 'jpg-to-pdf';
-
-    if (!isJpgToPdf) {
+    if (!isBackendReady) {
       setErrorMessage(
-        `The "${tool.name}" converter is scheduled for an upcoming release. Please try our active first tool: JPG/PNG → PDF.`
+        `The "${tool.name}" converter is scheduled for an upcoming release. Please try our active tools: JPG/PNG → PDF or Merge PDF.`
       );
+      setStage('error');
+      return;
+    }
+
+    if (isMergePdf && files.length < 2) {
+      setErrorMessage('Please select at least 2 PDF documents to merge.');
       setStage('error');
       return;
     }
@@ -162,7 +209,7 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
         signal: abortController.signal,
       });
 
-      const data = await response.json();
+      const data = await parseJsonResponse(response);
 
       if (!response.ok) {
         throw new Error(data.error || 'Server rejected the file upload.');
@@ -171,7 +218,7 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
       const jobId = data.jobId;
       setActiveJobId(jobId);
       setProgress(data.progress || 15);
-      setStatusMessage('Processing images...');
+      setStatusMessage('Processing documents...');
 
       // Calculate total original size
       const totalOriginalSize = files.reduce((acc, curr) => acc + curr.size, 0);
@@ -184,7 +231,7 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
             throw new Error('Failed to retrieve processing status.');
           }
 
-          const job = await pollRes.json();
+          const job = await parseJsonResponse(pollRes);
           setProgress(job.progress || 20);
           if (job.statusMessage) {
             setStatusMessage(job.statusMessage);
@@ -195,7 +242,7 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
             const output = job.outputFiles?.[0];
             setResult({
               jobId: job.id,
-              fileName: output?.fileName || 'converted_document.pdf',
+              fileName: output?.fileName || 'processed_document.pdf',
               fileSize: output?.size || 0,
               originalSize: totalOriginalSize,
               downloadUrl: output?.downloadUrl || `/api/jobs/${job.id}/download/0`,
@@ -254,9 +301,8 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
     }
   };
 
-  // Sample image generator for testing
+  // Sample image generator for jpg-to-pdf testing
   const handleLoadSampleImages = async () => {
-    // Generate two simple canvas-based test images
     const createSampleBlob = (text: string, color: string): Promise<File> => {
       return new Promise((resolve) => {
         const canvas = document.createElement('canvas');
@@ -287,10 +333,73 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
     handleFilesAdded([img1, img2]);
   };
 
+  // Sample PDF generator for merge-pdf testing
+  const handleLoadSamplePdfs = async () => {
+    try {
+      const createPdf = async (title: string, subtitle: string, pageColor: [number, number, number]) => {
+        const doc = await PDFDocument.create();
+        const page = doc.addPage([595, 842]); // A4
+        const font = await doc.embedFont(StandardFonts.HelveticaBold);
+        const subFont = await doc.embedFont(StandardFonts.Helvetica);
+
+        // Header band
+        page.drawRectangle({
+          x: 40,
+          y: 720,
+          width: 515,
+          height: 70,
+          color: rgb(pageColor[0], pageColor[1], pageColor[2]),
+        });
+
+        page.drawText(title, {
+          x: 60,
+          y: 745,
+          size: 24,
+          font,
+          color: rgb(1, 1, 1),
+        });
+
+        page.drawText(subtitle, {
+          x: 60,
+          y: 670,
+          size: 14,
+          font: subFont,
+          color: rgb(0.2, 0.2, 0.2),
+        });
+
+        page.drawText('Generated for PDFTOOL Merge Verification testing.', {
+          x: 60,
+          y: 640,
+          size: 11,
+          font: subFont,
+          color: rgb(0.5, 0.5, 0.5),
+        });
+
+        const bytes = await doc.save();
+        return new File([bytes], `${title.toLowerCase().replace(/\s+/g, '_')}.pdf`, {
+          type: 'application/pdf',
+        });
+      };
+
+      const doc1 = await createPdf('Document Part 1', 'Section A - Introduction & Overview', [0.02, 0.58, 0.41]); // Emerald
+      const doc2 = await createPdf('Document Part 2', 'Section B - Detailed Analysis & Summary', [0.15, 0.39, 0.92]); // Blue
+
+      handleFilesAdded([doc1, doc2]);
+    } catch (err) {
+      console.error('[ToolPage] Error generating sample PDFs:', err);
+    }
+  };
+
   // Related tools
   const relatedTools = TOOLS.filter(
     (t) => t.category === tool.category && t.id !== tool.id
   ).slice(0, 3);
+
+  const actionButtonText = isMergePdf
+    ? 'Merge PDFs'
+    : isJpgToPdf
+    ? 'Convert to PDF'
+    : `Start ${tool.name}`;
 
   return (
     <div id={`tool-page-${tool.id}`} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -339,14 +448,21 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
         </div>
 
         {/* Real Backend Ready Indicator */}
-        <div className="flex items-center gap-2 p-2 bg-emerald-50/80 dark:bg-emerald-950/40 rounded-xl border border-emerald-200 dark:border-emerald-800/80 text-xs self-start md:self-auto text-emerald-800 dark:text-emerald-200 font-medium">
-          <ShieldCheck className="w-4 h-4 text-emerald-600" />
-          <span>Real Server Processing Active</span>
-        </div>
+        {isBackendReady ? (
+          <div className="flex items-center gap-2 p-2 bg-emerald-50/80 dark:bg-emerald-950/40 rounded-xl border border-emerald-200 dark:border-emerald-800/80 text-xs self-start md:self-auto text-emerald-800 dark:text-emerald-200 font-medium">
+            <ShieldCheck className="w-4 h-4 text-emerald-600" />
+            <span>Real Server Processing Active</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 p-2 bg-amber-50/80 dark:bg-amber-950/40 rounded-xl border border-amber-200 dark:border-amber-800/80 text-xs self-start md:self-auto text-amber-800 dark:text-amber-200 font-medium">
+            <AlertTriangle className="w-4 h-4 text-amber-600" />
+            <span>Scheduled in Stage 2</span>
+          </div>
+        )}
       </div>
 
-      {/* Notice if user is viewing a tool not yet in stage 1 */}
-      {tool.id !== 'jpg-to-pdf' && (
+      {/* Notice if user is viewing a tool not yet in stage 1 or 2 */}
+      {!isBackendReady && (
         <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/80 flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
           <div className="text-xs space-y-1">
@@ -354,7 +470,15 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
               Tool Pipeline Milestone Notice
             </p>
             <p className="text-amber-800 dark:text-amber-300">
-              We are currently testing our real processing pipeline starting with our first approved tool:{' '}
+              We are currently deploying tools sequentially. Active real tools ready to use right now:{' '}
+              <button
+                type="button"
+                onClick={() => navigate('/tools/merge-pdf')}
+                className="font-bold underline text-emerald-700 dark:text-emerald-400 cursor-pointer"
+              >
+                Merge PDF
+              </button>{' '}
+              and{' '}
               <button
                 type="button"
                 onClick={() => navigate('/tools/jpg-to-pdf')}
@@ -362,7 +486,7 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
               >
                 JPG to PDF
               </button>
-              . Subsequent tools will follow sequentially.
+              .
             </p>
           </div>
         </div>
@@ -378,6 +502,8 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
               onFilesAdded={handleFilesAdded}
               onFileRemoved={handleRemoveFile}
               onClearFiles={handleClearFiles}
+              onMoveUp={handleMoveUp}
+              onMoveDown={handleMoveDown}
               acceptedFormats={tool.acceptedFormats}
               maxFileSizeMB={tool.maxFileSizeMB}
               toolName={tool.name}
@@ -388,28 +514,42 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
               <div className="p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/80 flex items-center justify-between">
                 <div className="flex items-center gap-2.5 text-xs text-emerald-900 dark:text-emerald-200">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                  <span>{files.length} file{files.length > 1 ? 's' : ''} ready for conversion.</span>
+                  <span>
+                    {files.length} file{files.length > 1 ? 's' : ''} ready{' '}
+                    {isMergePdf && files.length < 2 ? '(Select at least 2 PDFs to merge)' : 'for processing.'}
+                  </span>
                 </div>
                 <button
                   type="button"
                   onClick={handleStartProcessing}
-                  className="px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-500 text-neutral-950 text-xs font-bold shadow-xs cursor-pointer active:scale-95 transition-all"
+                  disabled={isMergePdf && files.length < 2}
+                  className="px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-neutral-950 text-xs font-bold shadow-xs cursor-pointer active:scale-95 transition-all"
                 >
-                  Start {tool.name} →
+                  {actionButtonText} →
                 </button>
               </div>
             )}
 
-            {/* Sample Image Loader if empty and tool is jpg-to-pdf */}
+            {/* Sample File Loaders if empty */}
             {files.length === 0 && (
               <div className="text-center">
-                <button
-                  type="button"
-                  onClick={handleLoadSampleImages}
-                  className="text-xs text-neutral-500 dark:text-neutral-400 hover:text-emerald-600 underline cursor-pointer"
-                >
-                  Don't have images ready? Click here to load sample test images
-                </button>
+                {isMergePdf ? (
+                  <button
+                    type="button"
+                    onClick={handleLoadSamplePdfs}
+                    className="text-xs text-neutral-500 dark:text-neutral-400 hover:text-emerald-600 underline cursor-pointer"
+                  >
+                    Don't have PDF files handy? Click here to generate sample PDF documents
+                  </button>
+                ) : isJpgToPdf ? (
+                  <button
+                    type="button"
+                    onClick={handleLoadSampleImages}
+                    className="text-xs text-neutral-500 dark:text-neutral-400 hover:text-emerald-600 underline cursor-pointer"
+                  >
+                    Don't have images ready? Click here to load sample test images
+                  </button>
+                ) : null}
               </div>
             )}
 
@@ -481,10 +621,10 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
                 type="button"
                 id="tool-primary-action-btn"
                 onClick={handleStartProcessing}
-                disabled={files.length === 0}
+                disabled={files.length === 0 || (isMergePdf && files.length < 2)}
                 className="w-full py-3.5 px-5 rounded-2xl bg-amber-400 hover:bg-amber-500 text-neutral-950 font-bold text-sm shadow-sm transition-all duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 border border-amber-500/40 active:scale-[0.99]"
               >
-                <span>Convert to PDF</span>
+                <span>{actionButtonText}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
 
@@ -497,10 +637,12 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
             <div className="p-5 rounded-3xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200/70 dark:border-neutral-700/60 space-y-2">
               <div className="flex items-center gap-2 text-xs font-bold text-emerald-800 dark:text-emerald-300">
                 <Sparkles className="w-4 h-4 text-emerald-600" />
-                <span>Multi-Image Ordering</span>
+                <span>{isMergePdf ? 'Page Order & Reordering' : 'Multi-File Ordering'}</span>
               </div>
               <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
-                You can select multiple JPG, PNG, and WebP images. They will be combined into a single, multi-page PDF document in order.
+                {isMergePdf
+                  ? 'Use the up and down arrow buttons on each file to change the merge sequence before combining.'
+                  : 'You can select multiple JPG, PNG, and WebP images. They will be combined into a single, multi-page PDF document in order.'}
               </p>
             </div>
           </div>
@@ -567,10 +709,10 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
               1
             </div>
             <h4 className="font-semibold text-neutral-900 dark:text-white text-sm mb-1">
-              Select or Drop Images
+              Select or Drop Files
             </h4>
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              Drag your JPG or PNG files onto the drop area or click Choose Files.
+              Drag your files onto the drop area or click Choose Files.
             </p>
           </div>
 
@@ -579,10 +721,10 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
               2
             </div>
             <h4 className="font-semibold text-neutral-900 dark:text-white text-sm mb-1">
-              Set Orientation & Margin
+              Configure & Arrange
             </h4>
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              Choose portrait, landscape, or auto to match image dimensions.
+              Reorder items as needed and adjust options in the side panel.
             </p>
           </div>
 
@@ -591,7 +733,7 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
               3
             </div>
             <h4 className="font-semibold text-neutral-900 dark:text-white text-sm mb-1">
-              Download Real PDF
+              Download Real Result
             </h4>
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
               Download your newly generated PDF immediately or preview it inline.

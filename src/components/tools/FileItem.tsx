@@ -1,19 +1,25 @@
 import React, { useEffect, useState } from 'react';
 import { UploadedFileItem } from '../../types';
 import { formatFileSize } from '../../lib/icons';
-import { Trash2, File, CheckCircle2, RefreshCw, AlertCircle, Image as ImageIcon } from 'lucide-react';
+import { Trash2, File, CheckCircle2, RefreshCw, AlertCircle, Image as ImageIcon, ArrowUp, ArrowDown } from 'lucide-react';
 
 interface FileItemProps {
   item: UploadedFileItem;
   onRemove: (id: string) => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
   index?: number;
+  total?: number;
   className?: string;
 }
 
 export const FileItem: React.FC<FileItemProps> = ({
   item,
   onRemove,
+  onMoveUp,
+  onMoveDown,
   index,
+  total,
   className = '',
 }) => {
   const [thumbUrl, setThumbUrl] = useState<string | null>(null);
@@ -94,15 +100,39 @@ export const FileItem: React.FC<FileItemProps> = ({
         </div>
       </div>
 
-      {/* Action */}
-      <button
-        type="button"
-        onClick={() => onRemove(item.id)}
-        className="p-2 rounded-xl text-neutral-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer flex-shrink-0"
-        title="Remove file"
-      >
-        <Trash2 className="w-4 h-4" />
-      </button>
+      {/* Actions */}
+      <div className="flex items-center gap-1 flex-shrink-0">
+        {onMoveUp && (
+          <button
+            type="button"
+            onClick={onMoveUp}
+            disabled={index === 0}
+            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+            title="Move up in order"
+          >
+            <ArrowUp className="w-3.5 h-3.5" />
+          </button>
+        )}
+        {onMoveDown && (
+          <button
+            type="button"
+            onClick={onMoveDown}
+            disabled={typeof total === 'number' && typeof index === 'number' && index >= total - 1}
+            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+            title="Move down in order"
+          >
+            <ArrowDown className="w-3.5 h-3.5" />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => onRemove(item.id)}
+          className="p-1.5 rounded-lg text-neutral-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+          title="Remove file"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </div>
     </div>
   );
 };

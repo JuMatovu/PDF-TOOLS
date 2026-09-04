@@ -26,6 +26,10 @@ const ALLOWED_TYPES_BY_TOOL: Record<string, { extensions: string[]; mimes: strin
     extensions: ['.jpg', '.jpeg', '.png', '.webp'],
     mimes: ['image/jpeg', 'image/png', 'image/webp', 'image/x-png', 'image/pjpeg'],
   },
+  'merge-pdf': {
+    extensions: ['.pdf'],
+    mimes: ['application/pdf', 'application/x-pdf'],
+  },
 };
 
 const storage = multer.diskStorage({

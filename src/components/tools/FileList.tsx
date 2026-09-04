@@ -6,6 +6,8 @@ interface FileListProps {
   files: UploadedFileItem[];
   onRemove: (id: string) => void;
   onClearAll?: () => void;
+  onMoveUp?: (index: number) => void;
+  onMoveDown?: (index: number) => void;
   className?: string;
 }
 
@@ -13,6 +15,8 @@ export const FileList: React.FC<FileListProps> = ({
   files,
   onRemove,
   onClearAll,
+  onMoveUp,
+  onMoveDown,
   className = '',
 }) => {
   if (files.length === 0) return null;
@@ -40,7 +44,10 @@ export const FileList: React.FC<FileListProps> = ({
             key={item.id}
             item={item}
             index={index}
+            total={files.length}
             onRemove={onRemove}
+            onMoveUp={onMoveUp ? () => onMoveUp(index) : undefined}
+            onMoveDown={onMoveDown ? () => onMoveDown(index) : undefined}
           />
         ))}
       </div>

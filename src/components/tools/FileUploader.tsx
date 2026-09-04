@@ -9,6 +9,8 @@ interface FileUploaderProps {
   onFilesAdded: (files: File[]) => void;
   onFileRemoved: (id: string) => void;
   onClearFiles?: () => void;
+  onMoveUp?: (index: number) => void;
+  onMoveDown?: (index: number) => void;
   acceptedFormats?: string[];
   maxFileSizeMB?: number;
   multiple?: boolean;
@@ -21,6 +23,8 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
   onFilesAdded,
   onFileRemoved,
   onClearFiles,
+  onMoveUp,
+  onMoveDown,
   acceptedFormats = ['.pdf'],
   maxFileSizeMB = 100,
   multiple = true,
@@ -39,7 +43,13 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
         />
       ) : (
         <div className="space-y-4">
-          <FileList files={files} onRemove={onFileRemoved} onClearAll={onClearFiles} />
+          <FileList
+            files={files}
+            onRemove={onFileRemoved}
+            onClearAll={onClearFiles}
+            onMoveUp={onMoveUp}
+            onMoveDown={onMoveDown}
+          />
 
           {multiple && (
             <div className="flex justify-center">
