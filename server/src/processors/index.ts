@@ -3,4 +3,8 @@ export * from './imageToPdfProcessor';
 export * from './mergePdfProcessor';
 export * from './splitPdfProcessor';
 export * from './rotatePdfProcessor';
+export * from './addPageNumbersProcessor';
+export * from './addWatermarkProcessor';
+export * from './removePagesProcessor';
+export * from './compressPdfProcessor';
 export * from './processorRegistry';

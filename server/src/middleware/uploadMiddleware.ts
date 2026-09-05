@@ -17,27 +17,116 @@ if (!fs.existsSync(stagingDir)) {
 }
 
 // Allowed extensions and MIME types mapping for tools
+const PDF_CONFIG = {
+  extensions: ['.pdf'],
+  mimes: [
+    'application/pdf',
+    'application/x-pdf',
+    'application/acrobat',
+    'applications/vnd.pdf',
+    'text/pdf',
+    'text/x-pdf',
+    'application/octet-stream',
+    'binary/octet-stream',
+  ],
+};
+
+const IMAGE_CONFIG = {
+  extensions: ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.gif'],
+  mimes: [
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/bmp',
+    'image/tiff',
+    'image/gif',
+    'image/x-png',
+    'image/pjpeg',
+    'application/octet-stream',
+  ],
+};
+
+const OFFICE_DOC_CONFIG = {
+  extensions: ['.docx', '.doc', '.pdf'],
+  mimes: [
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/msword',
+    'application/pdf',
+    'application/octet-stream',
+  ],
+};
+
+const OFFICE_PPT_CONFIG = {
+  extensions: ['.pptx', '.ppt', '.pdf'],
+  mimes: [
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.ms-powerpoint',
+    'application/pdf',
+    'application/octet-stream',
+  ],
+};
+
+const OFFICE_SHEET_CONFIG = {
+  extensions: ['.xlsx', '.xls', '.csv', '.pdf'],
+  mimes: [
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-excel',
+    'text/csv',
+    'application/pdf',
+    'application/octet-stream',
+  ],
+};
+
+const HTML_CONFIG = {
+  extensions: ['.html', '.htm', '.zip', '.pdf'],
+  mimes: ['text/html', 'application/zip', 'application/pdf', 'application/octet-stream'],
+};
+
+const TEXT_DOC_CONFIG = {
+  extensions: ['.pdf', '.docx', '.txt', '.md'],
+  mimes: ['application/pdf', 'text/plain', 'text/markdown', 'application/octet-stream'],
+};
+
 const ALLOWED_TYPES_BY_TOOL: Record<string, { extensions: string[]; mimes: string[] }> = {
-  'jpg-to-pdf': {
-    extensions: ['.jpg', '.jpeg', '.png', '.webp'],
-    mimes: ['image/jpeg', 'image/png', 'image/webp', 'image/x-png', 'image/pjpeg'],
+  // Image to PDF
+  'jpg-to-pdf': IMAGE_CONFIG,
+  'image-to-pdf': IMAGE_CONFIG,
+  'png-to-pdf': IMAGE_CONFIG,
+  'scan-to-pdf': {
+    extensions: ['.jpg', '.jpeg', '.png', '.pdf'],
+    mimes: [...IMAGE_CONFIG.mimes, ...PDF_CONFIG.mimes],
   },
-  'image-to-pdf': {
-    extensions: ['.jpg', '.jpeg', '.png', '.webp'],
-    mimes: ['image/jpeg', 'image/png', 'image/webp', 'image/x-png', 'image/pjpeg'],
-  },
-  'merge-pdf': {
-    extensions: ['.pdf'],
-    mimes: ['application/pdf', 'application/x-pdf'],
-  },
-  'split-pdf': {
-    extensions: ['.pdf'],
-    mimes: ['application/pdf', 'application/x-pdf'],
-  },
-  'rotate-pdf': {
-    extensions: ['.pdf'],
-    mimes: ['application/pdf', 'application/x-pdf'],
-  },
+
+  // Document conversions to PDF
+  'word-to-pdf': OFFICE_DOC_CONFIG,
+  'powerpoint-to-pdf': OFFICE_PPT_CONFIG,
+  'excel-to-pdf': OFFICE_SHEET_CONFIG,
+  'html-to-pdf': HTML_CONFIG,
+
+  // Text / AI tools
+  'ai-summarizer': TEXT_DOC_CONFIG,
+
+  // All PDF tools
+  'merge-pdf': PDF_CONFIG,
+  'split-pdf': PDF_CONFIG,
+  'extract-pages': PDF_CONFIG,
+  'rotate-pdf': PDF_CONFIG,
+  'compress-pdf': PDF_CONFIG,
+  'remove-pages': PDF_CONFIG,
+  'organize-pdf': PDF_CONFIG,
+  'add-page-numbers': PDF_CONFIG,
+  'add-watermark': PDF_CONFIG,
+  'crop-pdf': PDF_CONFIG,
+  'unlock-pdf': PDF_CONFIG,
+  'protect-pdf': PDF_CONFIG,
+  'sign-pdf': PDF_CONFIG,
+  'redact-pdf': PDF_CONFIG,
+  'pdf-to-jpg': PDF_CONFIG,
+  'pdf-to-word': PDF_CONFIG,
+  'pdf-to-powerpoint': PDF_CONFIG,
+  'pdf-to-pdfa': PDF_CONFIG,
+  'translate-pdf': PDF_CONFIG,
+  'pdf-to-markdown': PDF_CONFIG,
 };
 
 const storage = multer.diskStorage({
@@ -52,11 +141,11 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  const toolId = req.params.toolId?.toLowerCase() || 'jpg-to-pdf';
-  const allowed = ALLOWED_TYPES_BY_TOOL[toolId] || ALLOWED_TYPES_BY_TOOL['jpg-to-pdf'];
+  const toolId = req.params.toolId?.toLowerCase() || 'merge-pdf';
+  const allowed = ALLOWED_TYPES_BY_TOOL[toolId] || PDF_CONFIG;
 
   const ext = path.extname(file.originalname).toLowerCase();
-  const mime = file.mimetype.toLowerCase();
+  const mime = file.mimetype?.toLowerCase() || '';
 
   // Validate extension
   if (!allowed.extensions.includes(ext)) {
@@ -68,10 +157,10 @@ const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilt
   }
 
   // Validate MIME type
-  if (!allowed.mimes.includes(mime)) {
+  if (mime && !allowed.mimes.includes(mime) && mime !== 'application/octet-stream') {
     return cb(
       new Error(
-        `Unexpected MIME type "${mime}". Please upload genuine image files (${allowed.extensions.join(', ')}).`
+        `Unexpected MIME type "${mime}". Please upload valid ${allowed.extensions.join(', ')} files.`
       )
     );
   }

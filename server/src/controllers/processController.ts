@@ -78,9 +78,11 @@ export class ProcessController {
         // Move file
         await fs.promises.rename(f.path, targetPath);
 
-        // Magic byte validation based on input type
-        const isPdfInputTool = ['merge-pdf', 'split-pdf', 'rotate-pdf'].includes(toolId);
-        if (isPdfInputTool) {
+        // Magic byte validation based on file extension and input type
+        const isImage = ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.gif'].includes(ext);
+        const isPdf = ext === '.pdf';
+
+        if (isPdf) {
           const isValidPdf = await validatePdfMagicBytes(targetPath);
           if (!isValidPdf) {
             await jobService.deleteJob(job.id);
@@ -89,7 +91,7 @@ export class ProcessController {
             });
             return;
           }
-        } else {
+        } else if (isImage) {
           const isValidImage = await validateImageMagicBytes(targetPath);
           if (!isValidImage) {
             await jobService.deleteJob(job.id);

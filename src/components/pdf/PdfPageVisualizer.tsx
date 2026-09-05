@@ -11,18 +11,23 @@ import {
   Layers,
   FileText,
   Loader2,
+  Trash2,
+  FileX,
+  FileSymlink,
 } from 'lucide-react';
 import { renderPdfPages, RenderedPdfPage } from '../../utils/pdfRenderer';
 
+export type VisualizerMode = 'rotate' | 'split' | 'remove' | 'extract' | 'organize';
+
 interface PdfPageVisualizerProps {
   file: File;
-  mode: 'rotate' | 'split';
+  mode: VisualizerMode;
   // Rotate mode props
   pageRotations: Record<number, number>; // pageNumber (1-indexed) -> additional degrees (0, 90, 180, 270)
   onRotatePage: (pageNumber: number, deltaAngle: number) => void;
   onRotateAll: (deltaAngle: number) => void;
   onResetRotations: () => void;
-  // Split mode props
+  // Split / Remove / Extract mode props
   selectedPages: number[]; // 1-indexed page numbers
   onTogglePageSelection: (pageNumber: number) => void;
   onSetSelectedPages: (pages: number[]) => void;
@@ -127,8 +132,8 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
         if (!isCancelled) {
           setPages(result.pages);
           setLoading(false);
-          // If split mode and no pages are selected yet, default to page 1
-          if (mode === 'split' && selectedPages.length === 0 && result.pageCount > 0) {
+          // If split/extract mode and no pages are selected yet, default to page 1
+          if ((mode === 'split' || mode === 'extract') && selectedPages.length === 0 && result.pageCount > 0) {
             onSetSelectedPages([1]);
             onChangePageRangeInput('1');
           }
@@ -150,8 +155,10 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
 
   const totalPages = pages.length;
 
-  // Selected count for split
+  // Selected count for split / remove / extract
   const selectedCount = selectedPages.length;
+  const isSelectionMode = mode === 'split' || mode === 'remove' || mode === 'extract';
+  const isRemoveMode = mode === 'remove';
 
   // Rotate mode helpers
   const handleToggleRotateSelect = (pageNum: number) => {
@@ -184,7 +191,7 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
     }
   };
 
-  // Split mode: handle manual typing into input
+  // Selection mode: handle manual typing into input
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     onChangePageRangeInput(val);
@@ -192,32 +199,32 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
     onSetSelectedPages(parsed);
   };
 
-  // Quick select helpers for split mode
-  const handleSelectAllSplit = () => {
+  // Quick select helpers for selection mode
+  const handleSelectAllSelection = () => {
     const all = Array.from({ length: totalPages }, (_, i) => i + 1);
     onSetSelectedPages(all);
     onChangePageRangeInput(formatPageNumbersToRange(all));
   };
 
-  const handleClearSplit = () => {
+  const handleClearSelection = () => {
     onSetSelectedPages([]);
     onChangePageRangeInput('');
   };
 
-  const handleSelectOddSplit = () => {
+  const handleSelectOddSelection = () => {
     const odd = Array.from({ length: totalPages }, (_, i) => i + 1).filter((p) => p % 2 !== 0);
     onSetSelectedPages(odd);
     onChangePageRangeInput(formatPageNumbersToRange(odd));
   };
 
-  const handleSelectEvenSplit = () => {
+  const handleSelectEvenSelection = () => {
     const even = Array.from({ length: totalPages }, (_, i) => i + 1).filter((p) => p % 2 === 0);
     onSetSelectedPages(even);
     onChangePageRangeInput(formatPageNumbersToRange(even));
   };
 
-  // When user clicks a card in split mode
-  const handleCardClickSplit = (pageNum: number) => {
+  // When user clicks a card in selection mode
+  const handleCardClickSelection = (pageNum: number) => {
     onTogglePageSelection(pageNum);
     const updated = selectedPages.includes(pageNum)
       ? selectedPages.filter((p) => p !== pageNum)
@@ -230,27 +237,57 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
     return Object.entries(pageRotations).filter(([, angle]) => angle % 360 !== 0);
   }, [pageRotations]);
 
+  const headerTitle =
+    mode === 'rotate'
+      ? 'Interactive Page Rotation'
+      : mode === 'remove'
+      ? 'Pick Pages to Remove'
+      : mode === 'extract'
+      ? 'Pick Pages to Extract'
+      : mode === 'organize'
+      ? 'Organize, Rotate & Delete Pages'
+      : 'Pick Pages to Split Off';
+
+  const headerDescription =
+    mode === 'rotate'
+      ? 'Click rotation buttons on any page card, or select multiple pages to rotate in batch.'
+      : mode === 'remove'
+      ? 'Click on any page card to mark it for deletion, or enter specific page numbers below.'
+      : mode === 'extract'
+      ? 'Select specific pages to extract into an independent PDF document.'
+      : mode === 'organize'
+      ? 'Rotate individual pages, or mark unwanted pages for deletion before saving your organized PDF.'
+      : 'Insert page numbers to split off, or click on any page thumbnail below.';
+
   return (
     <div className="bg-white dark:bg-neutral-900 rounded-3xl border border-neutral-200/90 dark:border-neutral-800 p-6 space-y-6 shadow-sm">
       {/* Visualizer Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-100 dark:border-neutral-800 pb-4">
         <div>
           <div className="flex items-center gap-2">
-            <span className="p-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400">
-              {mode === 'rotate' ? <RotateCw className="w-4 h-4" /> : <Scissors className="w-4 h-4" />}
+            <span
+              className={`p-1.5 rounded-lg ${
+                isRemoveMode
+                  ? 'bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-400'
+                  : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400'
+              }`}
+            >
+              {mode === 'rotate' ? (
+                <RotateCw className="w-4 h-4" />
+              ) : mode === 'remove' ? (
+                <Trash2 className="w-4 h-4" />
+              ) : mode === 'extract' ? (
+                <FileSymlink className="w-4 h-4" />
+              ) : (
+                <Scissors className="w-4 h-4" />
+              )}
             </span>
-            <h3 className="font-bold text-base text-neutral-900 dark:text-white">
-              {mode === 'rotate' ? 'Interactive Page Rotation' : 'Pick Pages to Split Off'}
-            </h3>
+            <h3 className="font-bold text-base text-neutral-900 dark:text-white">{headerTitle}</h3>
             <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
               {totalPages} {totalPages === 1 ? 'Page' : 'Pages'}
             </span>
           </div>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
-            {mode === 'rotate'
-              ? 'Click the rotation buttons on any page card to rotate individual pages, or select multiple pages to rotate together.'
-              : 'Insert the page numbers you wish to split off, or click on any page thumbnail below to select it.'}
-          </p>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">{headerDescription}</p>
         </div>
 
         {/* Global Action Toolbar */}
@@ -288,32 +325,32 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
               )}
             </>
           ) : (
-            /* Split Quick Actions */
+            /* Split/Remove/Extract Quick Actions */
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
-                onClick={handleSelectAllSplit}
+                onClick={handleSelectAllSelection}
                 className="px-2.5 py-1.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-xs font-medium text-neutral-700 dark:text-neutral-300 cursor-pointer"
               >
                 All
               </button>
               <button
                 type="button"
-                onClick={handleSelectOddSplit}
+                onClick={handleSelectOddSelection}
                 className="px-2.5 py-1.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-xs font-medium text-neutral-700 dark:text-neutral-300 cursor-pointer"
               >
                 Odd
               </button>
               <button
                 type="button"
-                onClick={handleSelectEvenSplit}
+                onClick={handleSelectEvenSelection}
                 className="px-2.5 py-1.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-xs font-medium text-neutral-700 dark:text-neutral-300 cursor-pointer"
               >
                 Even
               </button>
               <button
                 type="button"
-                onClick={handleClearSplit}
+                onClick={handleClearSelection}
                 className="px-2.5 py-1.5 rounded-xl text-xs text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 cursor-pointer"
               >
                 Clear
@@ -323,22 +360,43 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
         </div>
       </div>
 
-      {/* Split Mode: Direct Page Range Input Bar */}
-      {mode === 'split' && (
-        <div className="p-4 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/80 dark:border-emerald-800/60 space-y-3">
+      {/* Direct Page Range Input Bar for Selection Modes */}
+      {isSelectionMode && (
+        <div
+          className={`p-4 rounded-2xl border space-y-3 ${
+            isRemoveMode
+              ? 'bg-rose-50/60 dark:bg-rose-950/20 border-rose-200/80 dark:border-rose-800/60'
+              : 'bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-800/60'
+          }`}
+        >
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex-1">
-              <label htmlFor="split-page-range-input" className="block text-xs font-bold text-neutral-800 dark:text-neutral-200 mb-1">
-                Insert Pages to Split Off:
+              <label
+                htmlFor="page-range-input"
+                className="block text-xs font-bold text-neutral-800 dark:text-neutral-200 mb-1"
+              >
+                {isRemoveMode
+                  ? 'Insert Pages to Remove:'
+                  : mode === 'extract'
+                  ? 'Insert Pages to Extract:'
+                  : 'Insert Pages to Split Off:'}
               </label>
               <div className="relative">
                 <input
-                  id="split-page-range-input"
+                  id="page-range-input"
                   type="text"
                   value={pageRangeInput}
                   onChange={handleInputChange}
-                  placeholder="e.g. 1, 3 or 2-4 (or click pages below)"
-                  className="w-full pl-3 pr-24 py-2 text-sm bg-white dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+                  placeholder={
+                    isRemoveMode
+                      ? 'e.g. 2, 4 or 1-3 (or click cards below)'
+                      : 'e.g. 1, 3 or 2-4 (or click cards below)'
+                  }
+                  className={`w-full pl-3 pr-24 py-2 text-sm bg-white dark:bg-neutral-900 border rounded-xl focus:outline-none focus:ring-2 font-mono ${
+                    isRemoveMode
+                      ? 'border-rose-300 dark:border-rose-700 focus:ring-rose-500'
+                      : 'border-neutral-300 dark:border-neutral-700 focus:ring-emerald-500'
+                  }`}
                 />
                 <div className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-neutral-400">
                   {totalPages > 0 ? `Max: ${totalPages}` : ''}
@@ -350,20 +408,23 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
               <span
                 className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold ${
                   selectedCount > 0
-                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300'
+                    ? isRemoveMode
+                      ? 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300'
+                      : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300'
                     : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400'
                 }`}
               >
-                <Check className="w-3.5 h-3.5" />
+                {isRemoveMode ? <Trash2 className="w-3.5 h-3.5" /> : <Check className="w-3.5 h-3.5" />}
                 <span>
-                  {selectedCount} of {totalPages} {totalPages === 1 ? 'page' : 'pages'} to split
+                  {selectedCount} of {totalPages} {totalPages === 1 ? 'page' : 'pages'}{' '}
+                  {isRemoveMode ? 'to remove' : mode === 'extract' ? 'to extract' : 'to split'}
                 </span>
               </span>
             </div>
           </div>
           <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-            Tip: You can type page numbers (e.g. <code className="font-mono font-bold">1, 3, 5</code>) or ranges (e.g.{' '}
-            <code className="font-mono font-bold">2-4</code>), or directly click on the page previews below.
+            Tip: You can enter numbers (e.g. <code className="font-mono font-bold">1, 3, 5</code>) or ranges (e.g.{' '}
+            <code className="font-mono font-bold">2-4</code>), or click directly on any page preview below.
           </p>
         </div>
       )}
@@ -411,7 +472,7 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
             const currentAngle = (pageRotations[pageNum] || 0) % 360;
             const isRotated = currentAngle !== 0;
 
-            const isSelectedForSplit = selectedPages.includes(pageNum);
+            const isSelected = selectedPages.includes(pageNum);
             const isCheckedForRotation = selectedForRotation.has(pageNum);
 
             return (
@@ -419,16 +480,18 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
                 key={pageNum}
                 id={`page-card-${pageNum}`}
                 onClick={() => {
-                  if (mode === 'split') {
-                    handleCardClickSplit(pageNum);
+                  if (isSelectionMode) {
+                    handleCardClickSelection(pageNum);
                   } else {
                     handleToggleRotateSelect(pageNum);
                   }
                 }}
                 className={`group relative rounded-2xl border transition-all duration-200 flex flex-col p-3 cursor-pointer ${
-                  mode === 'split'
-                    ? isSelectedForSplit
-                      ? 'border-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 ring-2 ring-emerald-500/50 shadow-sm'
+                  isSelectionMode
+                    ? isSelected
+                      ? isRemoveMode
+                        ? 'border-rose-500 bg-rose-50/40 dark:bg-rose-950/20 ring-2 ring-rose-500/50 shadow-sm'
+                        : 'border-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 ring-2 ring-emerald-500/50 shadow-sm'
                       : 'border-neutral-200 dark:border-neutral-800 bg-neutral-50/40 dark:bg-neutral-900/40 hover:border-neutral-300 dark:hover:border-neutral-700'
                     : isCheckedForRotation
                     ? 'border-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 ring-2 ring-emerald-500/50'
@@ -440,8 +503,10 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
                   <div className="flex items-center gap-1.5">
                     <span
                       className={`text-xs font-bold px-2 py-0.5 rounded-md ${
-                        mode === 'split' && isSelectedForSplit
-                          ? 'bg-emerald-600 text-white'
+                        isSelectionMode && isSelected
+                          ? isRemoveMode
+                            ? 'bg-rose-600 text-white'
+                            : 'bg-emerald-600 text-white'
                           : 'bg-neutral-200/80 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300'
                       }`}
                     >
@@ -455,15 +520,21 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
                   </div>
 
                   {/* Mode-specific badge / checkbox */}
-                  {mode === 'split' ? (
+                  {isSelectionMode ? (
                     <div
                       className={`w-5 h-5 rounded-md flex items-center justify-center transition-colors ${
-                        isSelectedForSplit
-                          ? 'bg-emerald-600 text-white'
+                        isSelected
+                          ? isRemoveMode
+                            ? 'bg-rose-600 text-white'
+                            : 'bg-emerald-600 text-white'
                           : 'border border-neutral-300 dark:border-neutral-700 text-transparent'
                       }`}
                     >
-                      <Check className="w-3.5 h-3.5 stroke-[3]" />
+                      {isRemoveMode ? (
+                        <Trash2 className="w-3.5 h-3.5 stroke-[2.5]" />
+                      ) : (
+                        <Check className="w-3.5 h-3.5 stroke-[3]" />
+                      )}
                     </div>
                   ) : (
                     <div
@@ -493,15 +564,59 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
                     }}
                   />
 
-                  {/* Split mode visual overlay when selected */}
-                  {mode === 'split' && isSelectedForSplit && (
-                    <div className="absolute inset-0 bg-emerald-500/10 pointer-events-none rounded-xl" />
+                  {/* Selection mode visual overlay when selected */}
+                  {isSelectionMode && isSelected && (
+                    <div
+                      className={`absolute inset-0 pointer-events-none rounded-xl ${
+                        isRemoveMode ? 'bg-rose-500/15' : 'bg-emerald-500/10'
+                      }`}
+                    />
                   )}
                 </div>
 
                 {/* Card Action Controls */}
                 <div className="mt-3 pt-2 border-t border-neutral-100 dark:border-neutral-800/80 flex items-center justify-between gap-1">
-                  {mode === 'rotate' ? (
+                  {mode === 'organize' ? (
+                    <div className="flex items-center gap-1 w-full">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onRotatePage(pageNum, 270);
+                        }}
+                        className="p-1.5 rounded-lg bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 transition-colors"
+                        title="Rotate -90°"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onRotatePage(pageNum, 90);
+                        }}
+                        className="p-1.5 rounded-lg bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 transition-colors"
+                        title="Rotate +90°"
+                      >
+                        <RotateCw className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCardClickSelection(pageNum);
+                        }}
+                        className={`flex-1 py-1.5 px-2 rounded-lg text-[11px] font-bold text-center transition-colors ${
+                          isSelected
+                            ? 'bg-rose-600 text-white hover:bg-rose-700'
+                            : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'
+                        }`}
+                        title={isSelected ? 'Page will be removed' : 'Page will be kept'}
+                      >
+                        {isSelected ? 'Removed' : 'Keep Page'}
+                      </button>
+                    </div>
+                  ) : mode === 'rotate' ? (
                     <>
                       <button
                         type="button"
@@ -533,15 +648,27 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleCardClickSplit(pageNum);
+                        handleCardClickSelection(pageNum);
                       }}
                       className={`w-full py-1.5 px-2 rounded-lg text-[11px] font-bold cursor-pointer transition-colors ${
-                        isSelectedForSplit
-                          ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                        isSelected
+                          ? isRemoveMode
+                            ? 'bg-rose-600 text-white hover:bg-rose-700'
+                            : 'bg-emerald-600 text-white hover:bg-emerald-700'
                           : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200'
                       }`}
                     >
-                      {isSelectedForSplit ? '✓ Selected to Split' : 'Click to Split'}
+                      {isSelected
+                        ? isRemoveMode
+                          ? '✓ Mark to Remove'
+                          : mode === 'extract'
+                          ? '✓ Selected to Extract'
+                          : '✓ Selected to Split'
+                        : isRemoveMode
+                        ? 'Click to Remove'
+                        : mode === 'extract'
+                        ? 'Click to Extract'
+                        : 'Click to Split'}
                     </button>
                   )}
                 </div>

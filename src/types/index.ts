@@ -12,10 +12,13 @@ export type ProcessingType = 'client' | 'batch' | 'editor' | 'ai';
 export interface ToolOptionConfig {
   id: string;
   label: string;
-  type: 'select' | 'toggle' | 'slider' | 'text' | 'password';
+  type: 'select' | 'toggle' | 'slider' | 'text' | 'password' | 'number';
   defaultValue?: string | boolean | number;
   options?: { label: string; value: string }[];
   description?: string;
+  placeholder?: string;
+  min?: number;
+  max?: number;
 }
 
 export interface PDFTool {

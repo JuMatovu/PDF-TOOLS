@@ -40,7 +40,21 @@ interface CompletedResult {
 }
 
 // Approved backend tools
-const ACTIVE_BACKEND_TOOLS = ['jpg-to-pdf', 'merge-pdf', 'split-pdf', 'rotate-pdf'];
+const ACTIVE_BACKEND_TOOLS = [
+  'jpg-to-pdf',
+  'merge-pdf',
+  'split-pdf',
+  'rotate-pdf',
+  'add-page-numbers',
+  'add-watermark',
+  'remove-pages',
+  'extract-pages',
+  'compress-pdf',
+  'crop-pdf',
+  'organize-pdf',
+  'pdf-to-markdown',
+  'ai-summarizer',
+];
 
 /**
  * Safe JSON response parser that prevents syntax errors on non-JSON/HTML responses
@@ -83,6 +97,27 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
   const isMergePdf = tool.id === 'merge-pdf' || tool.slug === 'merge-pdf';
   const isSplitPdf = tool.id === 'split-pdf' || tool.slug === 'split-pdf';
   const isRotatePdf = tool.id === 'rotate-pdf' || tool.slug === 'rotate-pdf';
+  const isRemovePages = tool.id === 'remove-pages' || tool.slug === 'remove-pages';
+  const isExtractPages = tool.id === 'extract-pages' || tool.slug === 'extract-pages';
+  const isAddPageNumbers = tool.id === 'add-page-numbers' || tool.slug === 'add-page-numbers';
+  const isAddWatermark = tool.id === 'add-watermark' || tool.slug === 'add-watermark';
+  const isCompressPdf = tool.id === 'compress-pdf' || tool.slug === 'compress-pdf';
+  const isCropPdf = tool.id === 'crop-pdf' || tool.slug === 'crop-pdf';
+  const isOrganizePdf = tool.id === 'organize-pdf' || tool.slug === 'organize-pdf';
+  const isPdfToMarkdown = tool.id === 'pdf-to-markdown' || tool.slug === 'pdf-to-markdown';
+  const isAiSummarizer = tool.id === 'ai-summarizer' || tool.slug === 'ai-summarizer';
+
+  const isVisualizerTool = isSplitPdf || isRotatePdf || isRemovePages || isExtractPages || isOrganizePdf;
+  const visualizerMode: 'rotate' | 'split' | 'remove' | 'extract' | 'organize' = isRotatePdf
+    ? 'rotate'
+    : isRemovePages
+    ? 'remove'
+    : isExtractPages
+    ? 'extract'
+    : isOrganizePdf
+    ? 'organize'
+    : 'split';
+
   const isBackendReady = ACTIVE_BACKEND_TOOLS.includes(tool.slug || tool.id);
 
   const [optionsState, setOptionsState] = useState<Record<string, any>>(() => {
@@ -93,7 +128,7 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
     return initial;
   });
 
-  // Interactive page manipulation states for Split and Rotate
+  // Interactive page manipulation states for Split, Rotate, Remove, and Extract
   const [pageRotations, setPageRotations] = useState<Record<number, number>>({});
   const [selectedPagesForSplit, setSelectedPagesForSplit] = useState<number[]>([]);
   const [pageRangeInput, setPageRangeInput] = useState<string>('1');
@@ -259,6 +294,22 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
       }
     }
 
+    if (isRemovePages) {
+      if (selectedPagesForSplit.length === 0 && !pageRangeInput.trim()) {
+        setErrorMessage('Please pick or insert at least one page you wish to remove.');
+        setStage('error');
+        return;
+      }
+    }
+
+    if (isExtractPages) {
+      if (selectedPagesForSplit.length === 0 && !pageRangeInput.trim()) {
+        setErrorMessage('Please pick or insert at least one page you wish to extract.');
+        setStage('error');
+        return;
+      }
+    }
+
     setStage('processing');
     setProgress(5);
     setStatusMessage('Uploading and validating files...');
@@ -280,11 +331,34 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
               pages: optionsState.pages || 'all',
             }
           : {}),
-        ...(isSplitPdf
+        ...(isSplitPdf || isExtractPages
           ? {
               selectedPages: selectedPagesForSplit,
               pageRange: pageRangeInput.trim() || selectedPagesForSplit.join(', '),
               splitMode: 'range',
+            }
+          : {}),
+        ...(isRemovePages
+          ? {
+              selectedPages: selectedPagesForSplit,
+              pagesToRemove: selectedPagesForSplit,
+              pageRange: pageRangeInput.trim() || selectedPagesForSplit.join(', '),
+            }
+          : {}),
+        ...(isOrganizePdf
+          ? {
+              pageRotations,
+              pagesToRemove: selectedPagesForSplit,
+            }
+          : {}),
+        ...(isCropPdf
+          ? {
+              marginPreset: optionsState.marginPreset || 'small',
+            }
+          : {}),
+        ...(isAiSummarizer
+          ? {
+              summaryLength: optionsState.summaryLength || 'bullet',
             }
           : {}),
       };
@@ -473,8 +547,16 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
         });
       };
 
-      if (isSplitPdf || isRotatePdf) {
-        const doc = await createPdf('Multi-Page Sample Document', 'Document with 3 pages for testing', [0.02, 0.58, 0.41], 3);
+      if (
+        isVisualizerTool ||
+        isAddPageNumbers ||
+        isAddWatermark ||
+        isCompressPdf ||
+        isCropPdf ||
+        isPdfToMarkdown ||
+        isAiSummarizer
+      ) {
+        const doc = await createPdf('Multi-Page Sample Document', 'Document with 4 pages for testing', [0.02, 0.58, 0.41], 4);
         handleFilesAdded([doc]);
       } else {
         const doc1 = await createPdf('Document Part 1', 'Section A - Introduction & Overview', [0.02, 0.58, 0.41]); // Emerald
@@ -501,10 +583,32 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
     ? selectedPagesForSplit.length > 0
       ? `Split ${selectedPagesForSplit.length} Selected Page${selectedPagesForSplit.length > 1 ? 's' : ''}`
       : 'Split PDF'
+    : isRemovePages
+    ? selectedPagesForSplit.length > 0
+      ? `Remove ${selectedPagesForSplit.length} Selected Page${selectedPagesForSplit.length > 1 ? 's' : ''}`
+      : 'Remove Pages'
+    : isExtractPages
+    ? selectedPagesForSplit.length > 0
+      ? `Extract ${selectedPagesForSplit.length} Selected Page${selectedPagesForSplit.length > 1 ? 's' : ''}`
+      : 'Extract Pages'
+    : isOrganizePdf
+    ? 'Save Organized PDF'
     : isRotatePdf
     ? rotatedCount > 0
       ? `Apply Rotation to ${rotatedCount} Page${rotatedCount > 1 ? 's' : ''}`
       : 'Rotate All Pages (+90°)'
+    : isAddPageNumbers
+    ? 'Add Page Numbers'
+    : isAddWatermark
+    ? 'Apply Watermark'
+    : isCompressPdf
+    ? 'Compress PDF'
+    : isCropPdf
+    ? 'Crop PDF Margins'
+    : isPdfToMarkdown
+    ? 'Convert to Markdown'
+    : isAiSummarizer
+    ? 'Generate AI Summary'
     : `Start ${tool.name}`;
 
   return (
@@ -619,8 +723,8 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           {/* Left Upload Area */}
           <div className="lg:col-span-8 space-y-6">
-            {/* If files are loaded for Split or Rotate mode, show interactive PDF visualizer */}
-            {files.length > 0 && (isSplitPdf || isRotatePdf) ? (
+            {/* If files are loaded for Split, Rotate, Remove, or Extract mode, show interactive PDF visualizer */}
+            {files.length > 0 && isVisualizerTool ? (
               <div className="space-y-6">
                 {/* Active Document Header Card */}
                 <div className="p-4 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200/90 dark:border-neutral-800 flex items-center justify-between shadow-xs">
@@ -633,7 +737,14 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
                         {files[0].name}
                       </p>
                       <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-                        {formatFileSize(files[0].size)} • Ready for {isRotatePdf ? 'page rotation' : 'page extraction'}
+                        {formatFileSize(files[0].size)} • Ready for{' '}
+                        {isRotatePdf
+                          ? 'page rotation'
+                          : isRemovePages
+                          ? 'page removal'
+                          : isExtractPages
+                          ? 'page extraction'
+                          : 'page splitting'}
                       </p>
                     </div>
                   </div>
@@ -649,7 +760,7 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
                 {/* Interactive Page Visualizer */}
                 <PdfPageVisualizer
                   file={files[0].file}
-                  mode={isRotatePdf ? 'rotate' : 'split'}
+                  mode={visualizerMode}
                   pageRotations={pageRotations}
                   onRotatePage={handleRotatePage}
                   onRotateAll={handleRotateAll}
@@ -670,15 +781,27 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
                         ? rotatedCount > 0
                           ? `${rotatedCount} page${rotatedCount > 1 ? 's' : ''} customized for rotation.`
                           : 'No custom page rotations selected yet (all pages will be rotated by default angle).'
+                        : isRemovePages
+                        ? selectedPagesForSplit.length > 0
+                          ? `${selectedPagesForSplit.length} page${selectedPagesForSplit.length > 1 ? 's' : ''} marked for removal.`
+                          : 'Please select pages above or enter page numbers to remove.'
+                        : isExtractPages
+                        ? selectedPagesForSplit.length > 0
+                          ? `${selectedPagesForSplit.length} page${selectedPagesForSplit.length > 1 ? 's' : ''} chosen for extraction.`
+                          : 'Please select pages above or enter page numbers to extract.'
                         : selectedPagesForSplit.length > 0
-                        ? `${selectedPagesForSplit.length} page${selectedPagesForSplit.length > 1 ? 's' : ''} chosen for extraction.`
+                        ? `${selectedPagesForSplit.length} page${selectedPagesForSplit.length > 1 ? 's' : ''} chosen for splitting.`
                         : 'Please insert or pick pages above to split off.'}
                     </span>
                   </div>
                   <button
                     type="button"
                     onClick={handleStartProcessing}
-                    disabled={isSplitPdf && selectedPagesForSplit.length === 0}
+                    disabled={
+                      (isSplitPdf || isExtractPages || isRemovePages) &&
+                      selectedPagesForSplit.length === 0 &&
+                      !pageRangeInput.trim()
+                    }
                     className="px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-neutral-950 text-xs font-bold shadow-xs cursor-pointer active:scale-95 transition-all whitespace-nowrap"
                   >
                     {actionButtonText} →
@@ -700,7 +823,7 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
             )}
 
             {/* If files selected for general tools, show prompt to process */}
-            {files.length > 0 && !isSplitPdf && !isRotatePdf && (
+            {files.length > 0 && !isVisualizerTool && (
               <div className="p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/80 flex items-center justify-between">
                 <div className="flex items-center gap-2.5 text-xs text-emerald-900 dark:text-emerald-200">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
@@ -731,13 +854,13 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
                   >
                     Don't have PDF files handy? Click here to generate sample PDF documents
                   </button>
-                ) : isSplitPdf || isRotatePdf ? (
+                ) : isVisualizerTool || isAddPageNumbers || isAddWatermark || isCompressPdf ? (
                   <button
                     type="button"
                     onClick={handleLoadSamplePdfs}
                     className="text-xs text-neutral-500 dark:text-neutral-400 hover:text-emerald-600 underline cursor-pointer"
                   >
-                    Don't have a multi-page PDF handy? Click here to generate a 3-page test PDF document
+                    Don't have a multi-page PDF handy? Click here to generate a 4-page test PDF document
                   </button>
                 ) : isJpgToPdf ? (
                   <button
@@ -814,11 +937,13 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
                     )}
                   </div>
                 </div>
-              ) : isSplitPdf ? (
+              ) : isSplitPdf || isExtractPages || isRemovePages ? (
                 <div className="space-y-4">
                   <div className="p-3.5 rounded-2xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200/80 dark:border-neutral-700/80 space-y-2">
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-neutral-500 dark:text-neutral-400">Pages to Extract:</span>
+                      <span className="text-neutral-500 dark:text-neutral-400">
+                        {isRemovePages ? 'Pages to Remove:' : 'Pages to Extract:'}
+                      </span>
                       <span className="font-bold text-emerald-600 dark:text-emerald-400">
                         {selectedPagesForSplit.length} selected
                       </span>
@@ -832,7 +957,9 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
                   </div>
 
                   <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                    Click any page card in the preview grid or insert page numbers into the box to customize which pages are extracted.
+                    {isRemovePages
+                      ? 'Click any page card in the preview grid or insert page numbers into the box to mark which pages to delete.'
+                      : 'Click any page card in the preview grid or insert page numbers into the box to customize which pages are extracted.'}
                   </p>
                 </div>
               ) : tool.options && tool.options.length > 0 ? (
@@ -856,6 +983,31 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
                             </option>
                           ))}
                         </select>
+                      )}
+
+                      {option.type === 'text' && (
+                        <input
+                          type="text"
+                          value={optionsState[option.id] ?? option.defaultValue ?? ''}
+                          placeholder={option.placeholder}
+                          onChange={(e) =>
+                            setOptionsState((prev) => ({ ...prev, [option.id]: e.target.value }))
+                          }
+                          className="w-full px-3 py-2 rounded-xl bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-xs font-medium text-neutral-800 dark:text-neutral-200 outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      )}
+
+                      {option.type === 'number' && (
+                        <input
+                          type="number"
+                          min={option.min}
+                          max={option.max}
+                          value={optionsState[option.id] ?? option.defaultValue ?? 1}
+                          onChange={(e) =>
+                            setOptionsState((prev) => ({ ...prev, [option.id]: Number(e.target.value) }))
+                          }
+                          className="w-full px-3 py-2 rounded-xl bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-xs font-medium text-neutral-800 dark:text-neutral-200 outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
                       )}
 
                       {option.type === 'toggle' && (
