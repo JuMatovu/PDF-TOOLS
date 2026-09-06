@@ -54,6 +54,7 @@ const ACTIVE_BACKEND_TOOLS = [
   'organize-pdf',
   'pdf-to-markdown',
   'ai-summarizer',
+  'translate-pdf',
 ];
 
 /**
@@ -106,6 +107,7 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
   const isOrganizePdf = tool.id === 'organize-pdf' || tool.slug === 'organize-pdf';
   const isPdfToMarkdown = tool.id === 'pdf-to-markdown' || tool.slug === 'pdf-to-markdown';
   const isAiSummarizer = tool.id === 'ai-summarizer' || tool.slug === 'ai-summarizer';
+  const isTranslatePdf = tool.id === 'translate-pdf' || tool.slug === 'translate-pdf';
 
   const isVisualizerTool = isSplitPdf || isRotatePdf || isRemovePages || isExtractPages || isOrganizePdf;
   const visualizerMode: 'rotate' | 'split' | 'remove' | 'extract' | 'organize' = isRotatePdf
@@ -132,6 +134,7 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
   const [pageRotations, setPageRotations] = useState<Record<number, number>>({});
   const [selectedPagesForSplit, setSelectedPagesForSplit] = useState<number[]>([]);
   const [pageRangeInput, setPageRangeInput] = useState<string>('1');
+  const [organizePageOrder, setOrganizePageOrder] = useState<number[]>([]);
 
   // Reset state when switching tools
   useEffect(() => {
@@ -146,6 +149,7 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
     setPageRotations({});
     setSelectedPagesForSplit([]);
     setPageRangeInput('1');
+    setOrganizePageOrder([]);
 
     const initial: Record<string, any> = {};
     tool.options?.forEach((opt) => {
@@ -349,6 +353,7 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
           ? {
               pageRotations,
               pagesToRemove: selectedPagesForSplit,
+              pageOrder: organizePageOrder,
             }
           : {}),
         ...(isCropPdf
@@ -359,6 +364,11 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
         ...(isAiSummarizer
           ? {
               summaryLength: optionsState.summaryLength || 'bullet',
+            }
+          : {}),
+        ...(isTranslatePdf
+          ? {
+              targetLanguage: optionsState.targetLanguage || 'es',
             }
           : {}),
       };
@@ -554,7 +564,8 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
         isCompressPdf ||
         isCropPdf ||
         isPdfToMarkdown ||
-        isAiSummarizer
+        isAiSummarizer ||
+        isTranslatePdf
       ) {
         const doc = await createPdf('Multi-Page Sample Document', 'Document with 4 pages for testing', [0.02, 0.58, 0.41], 4);
         handleFilesAdded([doc]);
@@ -609,6 +620,8 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
     ? 'Convert to Markdown'
     : isAiSummarizer
     ? 'Generate AI Summary'
+    : isTranslatePdf
+    ? 'Translate Document'
     : `Start ${tool.name}`;
 
   return (
@@ -770,6 +783,8 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
                   onSetSelectedPages={handleSetSelectedPagesForSplit}
                   pageRangeInput={pageRangeInput}
                   onChangePageRangeInput={setPageRangeInput}
+                  pageOrder={organizePageOrder}
+                  onChangePageOrder={setOrganizePageOrder}
                 />
 
                 {/* Prompt & Action Bar */}
@@ -781,6 +796,8 @@ export const ToolPage: React.FC<ToolPageProps> = ({ tool }) => {
                         ? rotatedCount > 0
                           ? `${rotatedCount} page${rotatedCount > 1 ? 's' : ''} customized for rotation.`
                           : 'No custom page rotations selected yet (all pages will be rotated by default angle).'
+                        : isOrganizePdf
+                        ? 'Drag and drop any page card to reorder pages, rotate them, or mark pages for removal.'
                         : isRemovePages
                         ? selectedPagesForSplit.length > 0
                           ? `${selectedPagesForSplit.length} page${selectedPagesForSplit.length > 1 ? 's' : ''} marked for removal.`

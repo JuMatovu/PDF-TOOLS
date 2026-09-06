@@ -17,7 +17,7 @@ const AppContent: React.FC = () => {
   const { currentPath, toolSlug, navigate } = useRouter();
 
   // If viewing the full-screen interactive PDF Editor shell
-  if (currentPath === '/edit-pdf') {
+  if (currentPath === '/edit-pdf' || currentPath === '/tools/edit-pdf') {
     return <EditorPage />;
   }
 

@@ -14,6 +14,9 @@ import {
   Trash2,
   FileX,
   FileSymlink,
+  GripVertical,
+  ArrowLeft,
+  ArrowRight,
 } from 'lucide-react';
 import { renderPdfPages, RenderedPdfPage } from '../../utils/pdfRenderer';
 
@@ -33,6 +36,9 @@ interface PdfPageVisualizerProps {
   onSetSelectedPages: (pages: number[]) => void;
   pageRangeInput: string;
   onChangePageRangeInput: (input: string) => void;
+  // Organize mode reordering
+  pageOrder?: number[];
+  onChangePageOrder?: (order: number[]) => void;
 }
 
 /**
@@ -108,11 +114,18 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
   onSetSelectedPages,
   pageRangeInput,
   onChangePageRangeInput,
+  pageOrder,
+  onChangePageOrder,
 }) => {
   const [pages, setPages] = useState<RenderedPdfPage[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [renderProgress, setRenderProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
   const [selectedForRotation, setSelectedForRotation] = useState<Set<number>>(new Set());
+
+  // Drag and drop state for organize mode
+  const [internalPageOrder, setInternalPageOrder] = useState<number[]>([]);
+  const [draggedPageIndex, setDraggedPageIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   // Render pages when file changes
   useEffect(() => {
@@ -132,6 +145,10 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
         if (!isCancelled) {
           setPages(result.pages);
           setLoading(false);
+          const initialOrder = Array.from({ length: result.pages.length }, (_, i) => i + 1);
+          setInternalPageOrder(pageOrder && pageOrder.length === result.pages.length ? pageOrder : initialOrder);
+          onChangePageOrder?.(initialOrder);
+
           // If split/extract mode and no pages are selected yet, default to page 1
           if ((mode === 'split' || mode === 'extract') && selectedPages.length === 0 && result.pageCount > 0) {
             onSetSelectedPages([1]);
@@ -153,7 +170,95 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
     };
   }, [file]);
 
+  // Keep internalPageOrder synced if prop changes
+  useEffect(() => {
+    if (pageOrder && pageOrder.length === pages.length) {
+      setInternalPageOrder(pageOrder);
+    }
+  }, [pageOrder, pages.length]);
+
   const totalPages = pages.length;
+
+  // Reordered pages for organize mode
+  const displayPages = useMemo(() => {
+    if (mode === 'organize' && internalPageOrder.length === pages.length && pages.length > 0) {
+      const pageMap = new Map(pages.map((p) => [p.pageNumber, p]));
+      return internalPageOrder.map((num) => pageMap.get(num)).filter(Boolean) as RenderedPdfPage[];
+    }
+    return pages;
+  }, [mode, internalPageOrder, pages]);
+
+  const isOrderModified = useMemo(() => {
+    if (mode !== 'organize' || internalPageOrder.length !== pages.length) return false;
+    return internalPageOrder.some((num, idx) => num !== idx + 1);
+  }, [mode, internalPageOrder, pages.length]);
+
+  // Drag and drop handlers for organize mode
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    if (mode !== 'organize') return;
+    setDraggedPageIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(index));
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    if (mode !== 'organize') return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverIndex !== index) {
+      setDragOverIndex(index);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
+    if (mode !== 'organize') return;
+    e.preventDefault();
+    const sourceIndex =
+      draggedPageIndex !== null
+        ? draggedPageIndex
+        : parseInt(e.dataTransfer.getData('text/plain'), 10);
+    if (isNaN(sourceIndex) || sourceIndex === targetIndex) {
+      setDraggedPageIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+
+    const newOrder = [...internalPageOrder];
+    const [moved] = newOrder.splice(sourceIndex, 1);
+    newOrder.splice(targetIndex, 0, moved);
+
+    setInternalPageOrder(newOrder);
+    onChangePageOrder?.(newOrder);
+    setDraggedPageIndex(null);
+    setDragOverIndex(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedPageIndex(null);
+    setDragOverIndex(null);
+  };
+
+  const handleMovePage = (index: number, direction: number) => {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= internalPageOrder.length) return;
+
+    const newOrder = [...internalPageOrder];
+    const [moved] = newOrder.splice(index, 1);
+    newOrder.splice(targetIndex, 0, moved);
+
+    setInternalPageOrder(newOrder);
+    onChangePageOrder?.(newOrder);
+  };
+
+  const handleResetOrder = () => {
+    const defaultOrder = pages.map((p) => p.pageNumber);
+    setInternalPageOrder(defaultOrder);
+    onChangePageOrder?.(defaultOrder);
+  };
 
   // Selected count for split / remove / extract
   const selectedCount = selectedPages.length;
@@ -245,7 +350,7 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
       : mode === 'extract'
       ? 'Pick Pages to Extract'
       : mode === 'organize'
-      ? 'Organize, Rotate & Delete Pages'
+      ? 'Organize, Reorder & Rotate Pages'
       : 'Pick Pages to Split Off';
 
   const headerDescription =
@@ -256,7 +361,7 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
       : mode === 'extract'
       ? 'Select specific pages to extract into an independent PDF document.'
       : mode === 'organize'
-      ? 'Rotate individual pages, or mark unwanted pages for deletion before saving your organized PDF.'
+      ? 'Drag and drop page cards to reorder them, rotate individual pages, or mark unwanted pages for removal.'
       : 'Insert page numbers to split off, or click on any page thumbnail below.';
 
   return (
@@ -453,6 +558,32 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
         </div>
       )}
 
+      {/* Organize Mode: Drag-and-drop page position reordering banner */}
+      {mode === 'organize' && (
+        <div className="p-3.5 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2 text-amber-900 dark:text-amber-200">
+            <GripVertical className="w-4 h-4 text-amber-600 flex-shrink-0" />
+            <span>
+              <strong>Drag & Drop to Reorder:</strong> Drag any page card to change its position, or use the arrow buttons (<code className="font-mono">← / →</code>).
+              {isOrderModified && (
+                <span className="ml-1 text-emerald-700 dark:text-emerald-400 font-bold">
+                  (Custom order active)
+                </span>
+              )}
+            </span>
+          </div>
+          {isOrderModified && (
+            <button
+              type="button"
+              onClick={handleResetOrder}
+              className="text-[11px] font-bold text-amber-800 dark:text-amber-300 underline cursor-pointer hover:text-amber-900"
+            >
+              Reset to Original Order
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Loading State while rendering pages */}
       {loading && (
         <div className="py-12 flex flex-col items-center justify-center space-y-3">
@@ -465,34 +596,52 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
       )}
 
       {/* Pages Grid */}
-      {!loading && pages.length > 0 && (
+      {!loading && displayPages.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 gap-4">
-          {pages.map((page) => {
+          {displayPages.map((page, idx) => {
             const pageNum = page.pageNumber;
             const currentAngle = (pageRotations[pageNum] || 0) % 360;
             const isRotated = currentAngle !== 0;
 
             const isSelected = selectedPages.includes(pageNum);
             const isCheckedForRotation = selectedForRotation.has(pageNum);
+            const isDraggingThis = draggedPageIndex === idx;
+            const isTargetOfDrag = dragOverIndex === idx && !isDraggingThis;
 
             return (
               <div
-                key={pageNum}
+                key={`${pageNum}-${idx}`}
                 id={`page-card-${pageNum}`}
+                draggable={mode === 'organize'}
+                onDragStart={(e) => handleDragStart(e, idx)}
+                onDragOver={(e) => handleDragOver(e, idx)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, idx)}
+                onDragEnd={handleDragEnd}
                 onClick={() => {
                   if (isSelectionMode) {
                     handleCardClickSelection(pageNum);
-                  } else {
+                  } else if (mode === 'rotate') {
                     handleToggleRotateSelect(pageNum);
                   }
                 }}
-                className={`group relative rounded-2xl border transition-all duration-200 flex flex-col p-3 cursor-pointer ${
-                  isSelectionMode
+                className={`group relative rounded-2xl border transition-all duration-200 flex flex-col p-3 ${
+                  mode === 'organize' ? 'cursor-grab active:cursor-grabbing select-none' : 'cursor-pointer'
+                } ${
+                  isDraggingThis
+                    ? 'opacity-40 border-dashed border-amber-400 scale-95'
+                    : isTargetOfDrag
+                    ? 'border-amber-500 bg-amber-50/50 dark:bg-amber-950/40 ring-2 ring-amber-500/80 shadow-md scale-102'
+                    : isSelectionMode
                     ? isSelected
                       ? isRemoveMode
                         ? 'border-rose-500 bg-rose-50/40 dark:bg-rose-950/20 ring-2 ring-rose-500/50 shadow-sm'
                         : 'border-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 ring-2 ring-emerald-500/50 shadow-sm'
                       : 'border-neutral-200 dark:border-neutral-800 bg-neutral-50/40 dark:bg-neutral-900/40 hover:border-neutral-300 dark:hover:border-neutral-700'
+                    : mode === 'organize'
+                    ? isSelected
+                      ? 'border-rose-300 dark:border-rose-800 bg-rose-50/30 dark:bg-rose-950/20'
+                      : 'border-neutral-200 dark:border-neutral-800 bg-neutral-50/40 dark:bg-neutral-900/40 hover:border-amber-400/80 dark:hover:border-amber-500/60 shadow-xs'
                     : isCheckedForRotation
                     ? 'border-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 ring-2 ring-emerald-500/50'
                     : 'border-neutral-200 dark:border-neutral-800 bg-neutral-50/40 dark:bg-neutral-900/40 hover:border-neutral-300 dark:hover:border-neutral-700'
@@ -501,6 +650,14 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
                 {/* Card Header: Page Number & Selection */}
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-1.5">
+                    {mode === 'organize' && (
+                      <div className="flex items-center gap-1 text-neutral-400 dark:text-neutral-500 mr-0.5" title="Position in document">
+                        <GripVertical className="w-3.5 h-3.5" />
+                        <span className="text-[11px] font-extrabold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/80 px-1.5 py-0.5 rounded">
+                          #{idx + 1}
+                        </span>
+                      </div>
+                    )}
                     <span
                       className={`text-xs font-bold px-2 py-0.5 rounded-md ${
                         isSelectionMode && isSelected
@@ -510,9 +667,9 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
                           : 'bg-neutral-200/80 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300'
                       }`}
                     >
-                      {pageNum}
+                      {mode === 'organize' ? `Pg ${pageNum}` : pageNum}
                     </span>
-                    {mode === 'rotate' && isRotated && (
+                    {isRotated && (
                       <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">
                         +{currentAngle}°
                       </span>
@@ -536,7 +693,7 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
                         <Check className="w-3.5 h-3.5 stroke-[3]" />
                       )}
                     </div>
-                  ) : (
+                  ) : mode === 'rotate' ? (
                     <div
                       onClick={(e) => {
                         e.stopPropagation();
@@ -550,7 +707,7 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
                         <Square className="w-4 h-4 text-neutral-300 dark:text-neutral-700" />
                       )}
                     </div>
-                  )}
+                  ) : null}
                 </div>
 
                 {/* Page Thumbnail Image with hardware-accelerated CSS rotation */}
@@ -558,19 +715,25 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
                   <img
                     src={page.dataUrl}
                     alt={`Page ${pageNum}`}
-                    className="max-w-full max-h-full object-contain rounded-sm transition-transform duration-300 ease-in-out shadow-xs"
+                    className="max-w-full max-h-full object-contain rounded-sm transition-transform duration-300 ease-in-out shadow-xs pointer-events-none"
                     style={{
                       transform: `rotate(${currentAngle}deg)`,
                     }}
                   />
 
                   {/* Selection mode visual overlay when selected */}
-                  {isSelectionMode && isSelected && (
+                  {(isSelectionMode || mode === 'organize') && isSelected && (
                     <div
-                      className={`absolute inset-0 pointer-events-none rounded-xl ${
-                        isRemoveMode ? 'bg-rose-500/15' : 'bg-emerald-500/10'
+                      className={`absolute inset-0 pointer-events-none rounded-xl flex items-center justify-center ${
+                        isRemoveMode || mode === 'organize' ? 'bg-rose-500/20 backdrop-blur-[0.5px]' : 'bg-emerald-500/10'
                       }`}
-                    />
+                    >
+                      {mode === 'organize' && (
+                        <span className="px-2 py-1 rounded bg-rose-600 text-white text-[11px] font-bold shadow-sm">
+                          Will be removed
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
 
@@ -578,42 +741,59 @@ export const PdfPageVisualizer: React.FC<PdfPageVisualizerProps> = ({
                 <div className="mt-3 pt-2 border-t border-neutral-100 dark:border-neutral-800/80 flex items-center justify-between gap-1">
                   {mode === 'organize' ? (
                     <div className="flex items-center gap-1 w-full">
+                      {/* Left Reorder Button */}
                       <button
                         type="button"
+                        disabled={idx === 0}
                         onClick={(e) => {
                           e.stopPropagation();
-                          onRotatePage(pageNum, 270);
+                          handleMovePage(idx, -1);
                         }}
-                        className="p-1.5 rounded-lg bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 transition-colors"
-                        title="Rotate -90°"
+                        className="p-1.5 rounded-lg bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 disabled:opacity-30 disabled:cursor-not-allowed text-neutral-700 dark:text-neutral-300 transition-colors cursor-pointer"
+                        title="Move Page Earlier (Left)"
                       >
-                        <RotateCcw className="w-3.5 h-3.5" />
+                        <ArrowLeft className="w-3.5 h-3.5" />
                       </button>
+                      {/* Right Reorder Button */}
+                      <button
+                        type="button"
+                        disabled={idx === displayPages.length - 1}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleMovePage(idx, 1);
+                        }}
+                        className="p-1.5 rounded-lg bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 disabled:opacity-30 disabled:cursor-not-allowed text-neutral-700 dark:text-neutral-300 transition-colors cursor-pointer"
+                        title="Move Page Later (Right)"
+                      >
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                      {/* Rotate CW Button */}
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           onRotatePage(pageNum, 90);
                         }}
-                        className="p-1.5 rounded-lg bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 transition-colors"
+                        className="p-1.5 rounded-lg bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 transition-colors cursor-pointer"
                         title="Rotate +90°"
                       >
                         <RotateCw className="w-3.5 h-3.5" />
                       </button>
+                      {/* Remove/Keep Button */}
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleCardClickSelection(pageNum);
                         }}
-                        className={`flex-1 py-1.5 px-2 rounded-lg text-[11px] font-bold text-center transition-colors ${
+                        className={`flex-1 py-1.5 px-2 rounded-lg text-[11px] font-bold text-center transition-colors cursor-pointer ${
                           isSelected
                             ? 'bg-rose-600 text-white hover:bg-rose-700'
                             : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700'
                         }`}
-                        title={isSelected ? 'Page will be removed' : 'Page will be kept'}
+                        title={isSelected ? 'Click to restore page' : 'Click to mark for removal'}
                       >
-                        {isSelected ? 'Removed' : 'Keep Page'}
+                        {isSelected ? 'Restore' : 'Delete'}
                       </button>
                     </div>
                   ) : mode === 'rotate' ? (

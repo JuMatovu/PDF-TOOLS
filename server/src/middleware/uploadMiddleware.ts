@@ -127,6 +127,7 @@ const ALLOWED_TYPES_BY_TOOL: Record<string, { extensions: string[]; mimes: strin
   'pdf-to-pdfa': PDF_CONFIG,
   'translate-pdf': PDF_CONFIG,
   'pdf-to-markdown': PDF_CONFIG,
+  'edit-pdf': PDF_CONFIG,
 };
 
 const storage = multer.diskStorage({

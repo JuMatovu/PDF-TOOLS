@@ -174,3 +174,60 @@ export async function renderPdfPages(
     };
   }
 }
+
+/**
+ * Renders a specific page of a PDF file at high resolution for interactive canvas editing
+ */
+export async function renderPdfPageHighRes(
+  fileOrBuffer: File | ArrayBuffer,
+  pageNumber: number,
+  targetWidth = 1200
+): Promise<{ dataUrl: string; width: number; height: number }> {
+  const arrayBuffer = fileOrBuffer instanceof File ? await fileOrBuffer.arrayBuffer() : fileOrBuffer;
+
+  try {
+    const loadingTask = pdfjsLib.getDocument({
+      data: new Uint8Array(arrayBuffer),
+      cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjsLib.version || '4.10.38'}/cmaps/`,
+      cMapPacked: true,
+      standardFontDataUrl: `https://unpkg.com/pdfjs-dist@${pdfjsLib.version || '4.10.38'}/standard_fonts/`,
+    });
+
+    const pdf = await loadingTask.promise;
+    const safePageNum = Math.max(1, Math.min(pdf.numPages, pageNumber));
+    const page = await pdf.getPage(safePageNum);
+    const originalViewport = page.getViewport({ scale: 1.0 });
+
+    const scale = Math.max(1.0, targetWidth / originalViewport.width);
+    const viewport = page.getViewport({ scale });
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.floor(viewport.width);
+    canvas.height = Math.floor(viewport.height);
+    const ctx = canvas.getContext('2d', { alpha: false });
+
+    if (!ctx) throw new Error('Could not get canvas 2d context');
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    await page.render({
+      canvasContext: ctx,
+      canvas,
+      viewport,
+    } as any).promise;
+
+    return {
+      dataUrl: canvas.toDataURL('image/png'),
+      width: canvas.width,
+      height: canvas.height,
+    };
+  } catch (err) {
+    console.warn(`[pdfRenderer] High-res render failed for page ${pageNumber}, returning fallback:`, err);
+    return {
+      dataUrl: createPlaceholderPageThumbnail(pageNumber, 800, 1100),
+      width: 800,
+      height: 1100,
+    };
+  }
+}

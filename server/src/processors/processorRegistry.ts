@@ -11,6 +11,11 @@ import { cropPdfProcessor } from './cropPdfProcessor';
 import { organizePdfProcessor } from './organizePdfProcessor';
 import { pdfToMarkdownProcessor } from './pdfToMarkdownProcessor';
 import { aiSummarizerProcessor } from './aiSummarizerProcessor';
+import { TranslatePdfProcessor } from './translatePdfProcessor';
+import { EditPdfProcessor } from './editPdfProcessor';
+
+export const translatePdfProcessor = new TranslatePdfProcessor();
+export const editPdfProcessor = new EditPdfProcessor();
 
 class ProcessorRegistry {
   private processors: Map<string, IProcessor> = new Map();
@@ -57,6 +62,12 @@ class ProcessorRegistry {
 
     // Approved tool 12: AI Summarizer
     this.register('ai-summarizer', aiSummarizerProcessor);
+
+    // Approved tool 13: Translate PDF
+    this.register('translate-pdf', translatePdfProcessor);
+
+    // Approved tool 14: Edit PDF
+    this.register('edit-pdf', editPdfProcessor);
   }
 
   public register(toolId: string, processor: IProcessor): void {
